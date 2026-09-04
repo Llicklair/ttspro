@@ -12,7 +12,13 @@ const publico = join(web, "public");
 
 function copiar(origen, destino) {
   mkdirSync(dirname(destino), { recursive: true });
-  if (existsSync(destino) && statSync(destino).size === statSync(origen).size) return false;
+  // Size alone is not enough: a re-exported model weighs the same and would be
+  // skipped (2026-09-05: the demo kept serving the previous weights).
+  if (existsSync(destino)) {
+    const a = statSync(origen);
+    const b = statSync(destino);
+    if (a.size === b.size && a.mtimeMs <= b.mtimeMs) return false;
+  }
   copyFileSync(origen, destino);
   return true;
 }

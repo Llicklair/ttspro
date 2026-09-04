@@ -405,6 +405,38 @@ es que el port habla otro idioma de locutor. El afinado tiene que alinear los do
 es exactamente la métrica que lo va a medir. Sirve además como línea base: cualquier número por
 encima de 0,197 ya es señal de que el modelo empieza a leer el embedding.
 
+## 2026-09-05 · Fase A: 2 000 pasos de afinado solo en español — HABLA ESPAÑOL, CLONA POCO, PIERDE INGLÉS
+
+**Montaje.** Afinado desde el port de coqui (`runs/afinado_es`) sobre las 24 392 frases de
+OpenSLR es (174 locutores), batch 16 fp16, lr 1e-4, 500 pasos de calentamiento solo del
+discriminador y 1 500 con el generador suelto. 6 934 s de reloj (con una parte a 40 s/paso
+porque la extracción de LibriTTS-R saturaba el disco: **no extraer corpus mientras se entrena**).
+Evaluado con `ttspro.train.evaluar`: 5 locutores por idioma no vistos como condición, 2 frases
+cada uno, embedding de una referencia suya.
+
+| | Port sin afinar | **Afinado es, paso 2 000** | Suelo (otro locutor) | Techo (audio real del mismo) |
+|---|---|---|---|---|
+| WER es | no hablaba español | **0,272** (mediana 0,225) | — | — |
+| SECS es | — | **0,335** | 0,248 | 0,693 |
+| WER en | 0,60 | 0,503 | — | — |
+| SECS en | 0,085 | 0,172 | 0,150 | 0,671 |
+
+Pérdidas: mel de 25 a 15, KL de 5,1 a 1,9, discriminador clavado en 2,97 (el equilibrio del
+LSGAN con seis discriminadores), gradiente del generador estable en 70–90.
+
+**Resultado.** El español pasa de no existir a WER 27 %: se entiende, con errores. La clonación
+sube de 0,085 (por debajo del suelo) a 0,335, apenas por encima del suelo de 0,248: el modelo
+**empieza** a leer el embedding de WeSpeaker pero aún no lo usa como identidad. El inglés se
+degrada, como cabía esperar al entrenar solo con español; se ve además en el demo, donde una
+frase inglesa de 10 palabras genera 13,1 s de audio en vez de 2,7 (el predictor de duración se
+ha desplazado hacia el español).
+
+**Consecuencia.** Es la línea base de la fase B, que ataca justo esas dos cosas: los dos idiomas
+**equilibrados** (`--balancear`, 24 392 frases por idioma para que el inglés no domine) y la
+**pérdida de consistencia de locutor** (`--scl 9`). Medida su factura antes de encenderla:
++2,4 % de tiempo por paso (2,525 → 2,586 s) y +0,58 GB de VRAM (3,87 → 4,45), o sea nada.
+Al arrancar, la SCL mide 0,62 de coseno entre el segmento generado y el real.
+
 ---
 
 ## Mediciones pendientes que deciden algo

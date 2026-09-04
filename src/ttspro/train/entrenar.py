@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import random
 import time
+from collections import Counter
 from pathlib import Path
 
 import torch
@@ -237,6 +239,12 @@ def main() -> None:
         help="peso de la pérdida de consistencia de locutor (YourTTS usa 9); 0 la apaga",
     )
     ap.add_argument("--scl-desde", type=int, default=0, help="paso en el que empieza la SCL")
+    ap.add_argument(
+        "--balancear",
+        action="store_true",
+        help="recorta cada idioma al tamaño del más pequeño; sin esto el inglés "
+        "(VCTK + LibriTTS-R) triplica al español y el modelo aprende sobre todo inglés",
+    )
     args = ap.parse_args()
 
     device = torch.device("cpu" if args.cpu or not torch.cuda.is_available() else "cuda")
@@ -269,6 +277,19 @@ def main() -> None:
         print(f"consistencia de locutor activa: peso {args.scl} desde el paso {args.scl_desde}")
 
     indice = [e for carpeta in args.cache for e in torch.load(carpeta / "indice.pt")]
+    conteo = Counter(e["idioma"] for e in indice)
+    if args.balancear and len(conteo) > 1:
+        tope = min(conteo.values())
+        rng = random.Random(0)
+        por_idioma: dict[str, list] = {}
+        for e in indice:
+            por_idioma.setdefault(e["idioma"], []).append(e)
+        indice = []
+        for _, ejemplos in sorted(por_idioma.items()):
+            rng.shuffle(ejemplos)
+            indice.extend(ejemplos[:tope])
+        print(f"balanceado a {tope} frases por idioma (de {dict(conteo)})")
+    print(f"idiomas: {dict(Counter(e['idioma'] for e in indice))}")
     dataset = DatasetTTS(indice, cfg)
     loader = DataLoader(
         dataset,

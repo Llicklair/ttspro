@@ -7,7 +7,7 @@ sin fila es un bug. Los datos **no** se versionan en git: esta tabla y los scrip
 |---|---|---|---|---|---|---|
 | Multilingual LibriSpeech (MLS) | es, en (+ fr, de, it, pt, pl, nl) | miles | ~918 es / ~44 000 en | CC BY 4.0 | entrenamiento multi-locutor | https://www.openslr.org/94/ |
 | VCTK | en | 110 | 44 | CC BY 4.0 | entrenamiento; baseline de YourTTS | https://datashare.ed.ac.uk/handle/10283/3443 |
-| LibriTTS-R | en | 2 456 | 585 | CC BY 4.0 | entrenamiento (audio restaurado) | https://www.openslr.org/141/ |
+| LibriTTS-R `train-clean-100` | en | **247** | ~53 | CC BY 4.0 | entrenamiento (audio restaurado, 24 kHz); receta `libritts_r` | https://www.openslr.org/141/ |
 | OpenSLR 61/71/72/73/74/75 (Google, español de Argentina, Chile, Colombia, Perú, Puerto Rico, Venezuela) | es | ~170 | ~38 | CC BY-SA 4.0 | **entrenamiento multi-locutor es** (receta `openslr_es`) | https://www.openslr.org/61 … /75 |
 | CSS10 (es) | es | 1 | 24 | Apache 2.0 | fine-tuning; voz limpia de un locutor | https://github.com/Kyubyong/css10 |
 | LJSpeech | en | 1 | 24 | dominio público | referencia; receta `ljspeech` | https://keithito.com/LJ-Speech-Dataset/ |
@@ -18,6 +18,17 @@ sin fila es un bug. Los datos **no** se versionan en git: esta tabla y los scrip
 
 Cinco segundos por locutor, no vistos en entrenamiento, con licencia CC o consentimiento escrito
 del locutor guardado junto al audio (`eval/<locutor>/CONSENTIMIENTO.md`). Sin eso, no entran.
+
+## Lo que hay preparado hoy (2026-09-05)
+
+| Corpus | Frases | Horas | Locutores | Idioma |
+|---|---|---|---|---|
+| OpenSLR 61/71–75 | 24 392 | 37,6 | 174 | es |
+| VCTK 0.92 | 44 237 | 41,3 | 109 | en |
+| LibriTTS-R train-clean-100 | 33 232 | — | 247 | en |
+| **Total** | ~101 900 | ~79+ | **530** | es + en |
+
+El número que importa para clonar voces no vistas es el de **locutores**, no el de horas.
 
 ## Manifiesto
 

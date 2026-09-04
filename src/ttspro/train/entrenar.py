@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 import torch
+from torch import nn
 from torch.utils.data import DataLoader
 
 from ttspro.data.dataset import DatasetTTS, LotesPorLongitud, collate
@@ -48,6 +49,8 @@ def paso(
     device,
     fp16: bool,
     solo_disc: bool = False,
+    scl: nn.Module | None = None,
+    peso_scl: float = 0.0,
 ) -> dict[str, float]:
     """One VITS step. `solo_disc` updates the discriminator only (warm-up when the
     generator comes pre-trained and the discriminator does not: a fresh critic
@@ -104,6 +107,10 @@ def paso(
         loss_fm = feature_loss(fmap_r, fmap_g)
         loss_gen, _ = generator_loss(y_d_hat_g)
         loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl
+    loss_scl = torch.zeros((), device=device)
+    if scl is not None and peso_scl > 0:
+        loss_scl = scl(y_hat, y) * peso_scl  # fp32 inside (the fbank overflows fp16)
+        loss_gen_all = loss_gen_all + loss_scl
     optim_g.zero_grad(set_to_none=True)
     if solo_disc:
         grad_g = torch.zeros(())
@@ -120,6 +127,7 @@ def paso(
         "mel": float(loss_mel),
         "dur": float(loss_dur),
         "kl": float(loss_kl),
+        "scl": float(loss_scl),
         "total_g": float(loss_gen_all),
         "grad_g": float(grad_g),
         "grad_d": float(grad_d),
@@ -222,6 +230,13 @@ def main() -> None:
         help="pesos iniciales del generador (ttspro.train.inicializar); optimizadores desde cero",
     )
     ap.add_argument("--workers", type=int, default=2)
+    ap.add_argument(
+        "--scl",
+        type=float,
+        default=0.0,
+        help="peso de la pérdida de consistencia de locutor (YourTTS usa 9); 0 la apaga",
+    )
+    ap.add_argument("--scl-desde", type=int, default=0, help="paso en el que empieza la SCL")
     args = ap.parse_args()
 
     device = torch.device("cpu" if args.cpu or not torch.cuda.is_available() else "cuda")
@@ -245,6 +260,13 @@ def main() -> None:
         optim_g.load_state_dict(estado["optim_g"])
         optim_d.load_state_dict(estado["optim_d"])
         paso_n, epoca0 = estado["paso"], estado["epoca"]
+
+    consistencia = None
+    if args.scl > 0:
+        from ttspro.train.consistencia import ConsistenciaLocutor
+
+        consistencia = ConsistenciaLocutor().to(device)
+        print(f"consistencia de locutor activa: peso {args.scl} desde el paso {args.scl_desde}")
 
     indice = [e for carpeta in args.cache for e in torch.load(carpeta / "indice.pt")]
     dataset = DatasetTTS(indice, cfg)
@@ -278,6 +300,8 @@ def main() -> None:
                 device,
                 scaler.is_enabled(),
                 solo_disc=paso_n < args.calentar_disc,
+                scl=consistencia,
+                peso_scl=args.scl if paso_n >= args.scl_desde else 0.0,
             )
             paso_n += 1
             if paso_n % args.cada_log == 0:

@@ -368,6 +368,43 @@ si es lo segundo, la salida es una conversión mixta que deje el predictor de du
 máscaras en fp32. Y el tamaño: fp32 son 148 MB de modelos, muy por encima del presupuesto; el
 peso ya no es un detalle, es el siguiente problema de arquitectura.
 
+## 2026-09-05 · Qué significa de verdad un coseno de locutor — RECALIBRA EL CRITERIO 4
+
+**Montaje.** `.scratch/calibrar_secs.py`: 3 000 pares por corpus con los embeddings que ya calcula
+`preparar` (el mismo encoder que usa el navegador). Dos preguntas: cuánto se parecen dos audios
+REALES del mismo locutor (el techo que este encoder puede dar) y cuánto dos de locutores distintos
+(el suelo, o sea "no clonar").
+
+| | OpenSLR es (174 loc., 5,5 s de media) | VCTK (109 loc., 3,4 s de media) |
+|---|---|---|
+| Mismo locutor, media | **0,757** (p10 0,66 · p50 0,764 · p90 0,845) | **0,685** (p10 0,568 · p50 0,694 · p90 0,791) |
+| Mismo locutor, audios ≥ 4 s | 0,767 | 0,750 |
+| Distinto locutor, media | 0,164 (p90 0,326 · **p99 0,465**) | 0,110 (p90 0,262 · p99 0,404) |
+| Umbral de igual error | 0,488 | 0,415 |
+
+**Consecuencia.** El umbral de 0,70 que llevaba el criterio 4 era **el techo del encoder**, no una
+meta alcanzable: pedía que la síntesis se pareciera a la referencia tanto como otra grabación real
+de la misma persona. Recalibrado a **≥ 0,55 absoluto y ≥ 0,75 × el techo medido en la misma
+tirada**; 0,55 queda por encima del percentil 99 de locutores distintos (0,465), así que un
+resultado que lo pase no puede confundirse con "otra voz". La comparación con los 0,75–0,82 de
+YourTTS era inválida: otro encoder, otra escala de coseno. El techo también depende de la duración
+(VCTK sube de 0,685 a 0,750 con audios de ≥ 4 s), y por eso la evaluación lo mide en cada tirada
+en vez de fijarlo.
+
+## 2026-09-05 · El modelo portado con embeddings de WeSpeaker: la clonación ni siquiera llega al suelo — CONFIRMA EL DIAGNÓSTICO
+
+**Montaje.** `ttspro.train.evaluar` sobre `runs/init_coqui_vctk/G_0.pt` (el port sin afinar),
+un locutor de VCTK no visto, una frase, con el embedding de WeSpeaker de una referencia suya.
+
+**Resultado.** Coseno de la síntesis **0,085**, con techo 0,680 y suelo 0,197 en ese mismo locutor.
+WER 0,60. Es decir: la voz generada se parece **menos** a la referencia que un locutor tomado al
+azar. Con la tabla `emb_g` propia de coqui el mismo modelo daba WER 0,12 y voz correcta.
+
+**Consecuencia.** Cuantifica lo que Marcos oyó ("la voz no se clona"): no es un afinado insuficiente,
+es que el port habla otro idioma de locutor. El afinado tiene que alinear los dos espacios, y esa
+es exactamente la métrica que lo va a medir. Sirve además como línea base: cualquier número por
+encima de 0,197 ya es señal de que el modelo empieza a leer el embedding.
+
 ---
 
 ## Mediciones pendientes que deciden algo

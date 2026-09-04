@@ -48,10 +48,14 @@ Lo que comprueba, en orden, y por qué cada cosa:
 4. **Calidad objetiva** sobre `eval/` (voces de referencia con licencia, 5 s cada una, no vistas en
    entrenamiento):
    - inteligibilidad: WER con Whisper-small ≤ 10 % en es y en en;
-   - similitud de locutor: coseno entre el embedding de la referencia y el de la síntesis ≥ 0,70 de
-     media.
-   Umbrales **provisionales**: se recalibran contra el baseline (YourTTS reportó SECS ≈ 0,75–0,82
-   en VCTK) en cuanto haya una primera medición en [docs/evidencia.md](docs/evidencia.md).
+   - similitud de locutor: coseno entre el embedding de la referencia y el de la síntesis
+     **≥ 0,55** y **≥ 0,75 × el techo medido en la misma tirada** (el coseno entre dos audios
+     REALES de ese mismo locutor).
+   Recalibrado el 2026-09-05 con 3 000 pares por corpus ([evidencia](docs/evidencia.md)): el techo
+   de este encoder es 0,69 en VCTK y 0,76 en OpenSLR es, y el percentil 99 de locutores distintos
+   es 0,465. El 0,70 que había aquí antes era el techo, no una meta; 0,55 está por encima de ese
+   p99 y a tres cuartos del techo. La comparación con YourTTS (0,75–0,82) no vale: otro encoder,
+   otra escala de coseno.
 5. **En el navegador**: Playwright + Chromium headless con el EP `wasm`, una frase de 10 palabras
    en < 3 s desde que el modelo está cargado, y descarga total (los dos `.onnx` + wasm de ORT +
    espeak) ≤ 110 MB (80 hasta el 2026-09-04; ADR 0005, enmienda).

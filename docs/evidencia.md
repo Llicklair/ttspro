@@ -381,6 +381,9 @@ sube arriba como entrada con fecha.
 - **Ops en WebGPU** (ADR 0005): la lista `ttspro.export.ops_ort_web` es de la documentación, no
   del runtime: cargar `speaker_encoder.fp16.onnx` en Chrome con el EP `webgpu` y ver en el
   perfilador de ORT qué nodos cayeron a CPU. Cero es el objetivo.
+- **XTTS-v2 como listón** (ADR 0006): WER y SECS de XTTS sobre `eval/` en español e inglés, para
+  saber a qué distancia queda el modelo propio; y si el audio sintético castellano de XTTS mejora
+  el afinado (medir con y sin).
 - **Calidad con datos reales** (SCOPE, criterio 4): el sintetizador no ha visto un dato. Primer
   corpus (data/README.md), primeras muestras en `runs/<x>/muestras/`, primer WER y SECS. Ese
   número recalibra los umbrales provisionales del criterio de terminado.

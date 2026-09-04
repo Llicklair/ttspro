@@ -16,6 +16,7 @@ como demo.
 |---|---|
 | **Modelos autorregresivos** (XTTS, Tortoise, VALL-E, Bark) | Mejor prosodia, pero decodifican token a token con caché KV: ni caben en el presupuesto de latencia (regla 8) ni se exportan a un grafo ONNX que ORT Web ejecute bien. [ADR 0001](docs/adr/0001-sintetizador-no-autorregresivo.md). |
 | **Servidor de inferencia** (API HTTP/gRPC, cola, cuentas) | El producto es `tts.onnx` + el runtime JS. Quien quiera servidor lo tiene con `onnxruntime` en Python en cinco líneas; aquí no se mantiene. |
+| **Uso comercial** (decidido el 2026-09-05, [ADR 0006](docs/adr/0006-uso-no-comercial-y-xtts-como-maestro.md)) | El proyecto es no comercial. Eso abre XTTS-v2 (CPML) como maestro y listón, nunca como runtime. Si cambia, se reentrena sin datos de XTTS. |
 | **Fork de coqui TTS o dependencia de él** | Archivado en 2024 y con export hostil (MAS en el grafo, config gigante, phonemizer acoplado). Se reimplementa lo mínimo. [ADR 0003](docs/adr/0003-implementacion-propia-no-fork.md). |
 | **Entrenar o afinar en el navegador** | Entrenar es Python. El navegador solo ejecuta. |
 | **Conversión de voz** (audio → audio) | Otro problema con otro modelo. |

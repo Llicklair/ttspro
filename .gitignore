@@ -14,6 +14,8 @@ web/dist/
 
 # Model weights and data never go in git (data/README.md has the table)
 models/*.onnx
+models/*.export.json
+cache/
 models/*.pt
 models/*.pth
 checkpoints/

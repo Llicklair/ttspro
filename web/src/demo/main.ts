@@ -22,6 +22,14 @@ const log = (msg: string) => {
 };
 
 let contrato: Contrato;
+interface Voz {
+  id: string;
+  nombre: string;
+  idioma: string;
+  embedding: number[];
+}
+let voces: { espacio: string; voces: Voz[] } | null = null;
+let espacioModelo = "wespeaker-resnet34-LM";
 let encoder: Sesion | null = null;
 let tts: Sesion | null = null;
 let locutor: Locutor | null = null;
@@ -52,7 +60,8 @@ async function cargarModelos(): Promise<void> {
     estado.textContent = `listo · encoder ${e.proveedor} ${e.ms_carga.toFixed(0)} ms · tts ${t.proveedor} ${t.ms_carga.toFixed(0)} ms · ${mb} MB de modelos · ${hilos()} hilo(s) wasm · crossOriginIsolated=${crossOriginIsolated}`;
     log(`modelos cargados: ${estado.textContent}`);
     log(`espeak-ng: ${await versionEspeak()}`);
-    for (const id of ["fichero", "grabar", "sintetizar"])
+    await cargarPresets();
+    for (const id of ["fichero", "grabar", "sintetizar", "preset"])
       ($(id) as HTMLButtonElement).disabled = false;
   } catch (err) {
     estado.textContent = `error: ${String(err)}`;
@@ -63,6 +72,50 @@ async function cargarModelos(): Promise<void> {
 }
 
 const srEncoder = () => contrato.grafos.speaker_encoder.frecuencia_entrada_hz ?? 16000;
+
+/** Presets are speaker vectors in a NAMED space; the un-finetuned port speaks
+ * coqui's emb_g space, the fine-tuned model WeSpeaker's. A mismatch is not a
+ * worse voice, it is noise, so the page says which space each side is in. */
+async function cargarPresets(): Promise<void> {
+  const exportado = await fetch("/models/tts.export.json")
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+  espacioModelo = exportado?.espacio_locutor ?? espacioModelo;
+  voces = await fetch("/models/voces.json")
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+  const sel = $("preset") as HTMLSelectElement;
+  sel.innerHTML = '<option value="">— elige una voz —</option>';
+  if (!voces) {
+    $("espacio").textContent = `sin models/voces.json (modelo: ${espacioModelo})`;
+    return;
+  }
+  for (const [i, v] of voces.voces.entries()) {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = `${v.idioma} · ${v.nombre}`;
+    sel.appendChild(o);
+  }
+  const ok = voces.espacio === espacioModelo;
+  $("espacio").textContent = ok
+    ? `${voces.voces.length} voces (${voces.espacio})`
+    : `AVISO: presets en ${voces.espacio}, modelo en ${espacioModelo}: no coinciden`;
+  const clonable = espacioModelo === "wespeaker-resnet34-LM";
+  if (!clonable)
+    log(
+      `el modelo cargado espera el espacio ${espacioModelo}: la clonación desde audio (WeSpeaker) no le sirve todavía; usa un preset`,
+    );
+}
+
+$("preset").addEventListener("change", () => {
+  const i = ($("preset") as HTMLSelectElement).value;
+  if (!voces || i === "") return;
+  const v = voces.voces[Number(i)];
+  locutor = { embedding: Float32Array.from(v.embedding), segundos: 0, ms: 0 };
+  ($("idioma") as HTMLSelectElement).value = v.idioma;
+  $("locutor").textContent = `preset ${v.nombre} (${voces.espacio})`;
+  log($("locutor").textContent ?? "");
+});
 
 async function referenciaDesde(datos: ArrayBuffer, origen: string): Promise<void> {
   await referenciaDesdeOnda(await decodificar(datos, srEncoder()), origen);

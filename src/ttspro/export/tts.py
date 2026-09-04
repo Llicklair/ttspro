@@ -141,6 +141,12 @@ def main() -> None:
     ap.add_argument(
         "--upsample-initial", type=int, default=None, help="override decoder width to measure size"
     )
+    ap.add_argument(
+        "--espacio",
+        default=None,
+        help="speaker space the graph expects (voces.json must match); auto: "
+        "coqui-emb_g-vctk for the un-finetuned port, wespeaker-resnet34-LM otherwise",
+    )
     args = ap.parse_args()
 
     cfg = config_por_defecto()
@@ -164,8 +170,21 @@ def main() -> None:
         convert_float_to_float16(onnx.load(str(args.salida)), keep_io_types=True), str(salida16)
     )
 
+    espacio = args.espacio
+    if espacio is None:
+        estado = (
+            torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+            if args.checkpoint
+            else {}
+        )
+        espacio = (
+            "coqui-emb_g-vctk"
+            if "origen" in estado and "paso" not in estado
+            else "wespeaker-resnet34-LM"
+        )
     hechos = {
         "checkpoint": str(args.checkpoint) if args.checkpoint else None,
+        "espacio_locutor": espacio,
         "config": dataclasses.asdict(cfg),
         "parametros_M": bloques,
         "parametros_exportados_M": round(exportables, 2),

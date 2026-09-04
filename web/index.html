@@ -37,9 +37,14 @@
     </fieldset>
 
     <fieldset>
-      <legend>2 · Voz de referencia (3–10 s)</legend>
+      <legend>2 · Voz</legend>
+      <p>
+        <label>preset <select id="preset" disabled><option value="">— elige una voz —</option></select></label>
+        <span id="espacio" class="mono"></span>
+      </p>
+      <p>o clonar desde una referencia de 3–10 s:
       <input id="fichero" type="file" accept="audio/*" disabled />
-      <button id="grabar" disabled>grabar 5 s con el micrófono</button>
+      <button id="grabar" disabled>grabar 5 s con el micrófono</button></p>
       <p id="locutor" class="mono">—</p>
     </fieldset>
 

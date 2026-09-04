@@ -1,20 +1,20 @@
 {
  "frase": "The quick brown fox jumps over the lazy dog today.",
- "precision": ".fp16",
+ "precision": "fp32",
  "palabras": 10,
- "ms_total_sintesis": 7589,
- "ms_modelo": 6841.310000002384,
- "ms_frontend": 451.6850000023842,
+ "ms_total_sintesis": 13227,
+ "ms_modelo": 12511.085000038147,
+ "ms_frontend": 367.6050000190735,
  "segundos_audio": 2.681904761904762,
- "rtf": 2.5509145951713434,
+ "rtf": 4.664999733678997,
  "proveedor": "wasm",
  "tokens": 123,
- "estado": "listo · encoder wasm 2232 ms · tts wasm 11917 ms · 75.3 MB de modelos · 4 hilo(s) wasm · crossOriginIsolated=true",
+ "estado": "listo · encoder wasm 2304 ms · tts wasm 8438 ms · 148.4 MB de modelos · 4 hilo(s) wasm · crossOriginIsolated=true",
  "descargas_MB": {
-  "/models/speaker_encoder.fp16.onnx": 14.19,
-  "/models/tts.fp16.onnx": 61.15,
+  "/models/speaker_encoder.onnx": 27.45,
+  "/models/tts.onnx": 120.99,
   "/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm": 27.8,
   "/espeak/espeak-ng.wasm": 18.49
  },
- "mb_descarga_total": 121.6
+ "mb_descarga_total": 194.7
 }

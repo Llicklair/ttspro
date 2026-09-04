@@ -30,6 +30,8 @@ const modelos = join(raiz, "models");
 const faltan = [];
 for (const f of [
   "contrato.json",
+  "voces.json",
+  "tts.export.json",
   "speaker_encoder.onnx",
   "speaker_encoder.fp16.onnx",
   "tts.onnx",

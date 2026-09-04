@@ -3,7 +3,9 @@
   "nota": "Firmas de los dos grafos (ARCHITECTURE regla 2, ADR 0002). Lo leen tests/terminado y web/src/runtime. Cambiar una firma sin cambiar esto es violación.",
   "embedding_locutor": {
     "dim": 256,
-    "encoder": "por-decidir (ECAPA-TDNN | ResNet H/ASP | WavLM destilado) — ver docs/evidencia.md, mediciones pendientes"
+    "encoder": "Wespeaker/wespeaker-voxceleb-resnet34-LM (ONNX publicado, CC-BY-4.0), decidido 2026-09-04 en docs/evidencia.md; ECAPA-TDNN de speechbrain descartado por tamano (42 MB fp16)",
+    "features_dentro_del_grafo": "fbank Kaldi: onda x 32768, tramas 400/160 sin padding, quitar DC, preenfasis 0.97, Hamming no periodica, DFT 512, 80 mel 20-8000 Hz escala 1127*ln, log natural con suelo eps, media por frase restada; todo como Conv1d + MatMul (ttspro.model.fbank.FbankKaldiConv)",
+    "precision": "fbank y normalizacion en fp32; backbone en fp16 en speaker_encoder.fp16.onnx (el fbank desborda fp16)"
   },
   "grafos": {
     "speaker_encoder": {

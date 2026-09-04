@@ -399,6 +399,11 @@ wheels = [
 ]
 
 [[package]]
+name = "galaxy-brain"
+version = "0.7.0"
+source = { git = "https://github.com/Llicklair/galaxy-brain.git#56e4a932e29cb111425f079a97eb597e7ae19c9d" }
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2059,6 +2064,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "galaxy-brain" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -2083,6 +2089,7 @@ train = [
 
 [package.metadata]
 requires-dist = [
+    { name = "galaxy-brain", marker = "extra == 'dev'", git = "https://github.com/Llicklair/galaxy-brain.git" },
     { name = "huggingface-hub", marker = "extra == 'exp'", specifier = ">=0.24" },
     { name = "jiwer", marker = "extra == 'eval'", specifier = ">=3.0" },
     { name = "numpy", specifier = ">=1.26" },

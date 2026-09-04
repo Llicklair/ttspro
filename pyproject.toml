@@ -30,6 +30,9 @@ eval = [
 dev = [
     "pytest>=8",
     "ruff>=0.6",
+    # galaxy-brain: error console + code graph for agents. After `uv sync`, run
+    # `uv run gb on` once so every Python process in this venv is captured.
+    "galaxy-brain",
 ]
 # Experiments recorded in docs/evidencia.md (pretrained baselines, never shipped).
 exp = [
@@ -46,6 +49,7 @@ url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [tool.uv.sources]
+galaxy-brain = { git = "https://github.com/Llicklair/galaxy-brain.git" }
 torch = { index = "pytorch-cu126" }
 torchaudio = { index = "pytorch-cu126" }
 

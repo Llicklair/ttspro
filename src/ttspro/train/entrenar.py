@@ -162,6 +162,13 @@ def guardar(
     )
 
 
+FRASES_MUESTRA = [
+    ("es", "Hola, ¿cómo estás? Hoy hace un día precioso para salir a pasear."),
+    ("es", "El sintetizador ya habla español con la voz de esta grabación."),
+    ("en", "Hello, how are you today? Text to speech running in the browser."),
+]
+
+
 def muestras(
     net_g,
     cfg: ConfigSintetizador,
@@ -169,32 +176,43 @@ def muestras(
     carpeta: Path,
     paso_n: int,
     device,
-    n: int = 3,
+    frases: list[tuple[str, str]] | None = None,
 ) -> None:
-    """Synthesize a few training sentences with their own speaker embedding: listening material."""
+    """Fixed sentences with fixed voices, so two checkpoints can be compared by ear.
+
+    The speaker is the first one of each language in id order, and the noise
+    comes from a fixed seed: what changes between two files with the same name
+    is the model, nothing else.
+    """
     import soundfile as sf
 
-    from ttspro.data.dataset import DatasetTTS
+    from ttspro.frontend import tokenizar
 
     carpeta.mkdir(parents=True, exist_ok=True)
-    idiomas = DatasetTTS([], cfg).idiomas
+    idiomas = {"es": 0, "en": 1}
+    voz: dict[str, torch.Tensor] = {}
+    for e in sorted(indice, key=lambda e: (e["idioma"], e["locutor"])):
+        voz.setdefault(e["idioma"], e["embedding"])
     net_g.eval()
-    g = torch.Generator().manual_seed(0)
     with torch.no_grad():
-        for i, e in enumerate(indice[:n]):
-            tokens = e["tokens"].unsqueeze(0).to(device)
+        for i, (idioma, texto) in enumerate(frases or FRASES_MUESTRA):
+            if idioma not in voz:
+                continue
+            _, secuencia = tokenizar(texto, idioma)
+            tokens = torch.tensor([secuencia], device=device)
             longitud = tokens.shape[1]
+            g = torch.Generator().manual_seed(0)
             onda = net_g.inferir(
                 tokens,
                 torch.tensor([longitud], device=device),
-                e["embedding"].unsqueeze(0).to(device),
-                torch.tensor([idiomas[e["idioma"]]], device=device),
+                voz[idioma].unsqueeze(0).to(device),
+                torch.tensor([idiomas[idioma]], device=device),
                 torch.randn(1, cfg.inter_channels, longitud * 12, generator=g).to(device),
                 torch.randn(1, 2, longitud, generator=g).to(device),
                 torch.tensor([0.667, 0.8, 1.0], device=device),
             )
             sf.write(
-                str(carpeta / f"paso{paso_n:07d}_{i}_{e['idioma']}.wav"),
+                str(carpeta / f"paso{paso_n:07d}_{i}_{idioma}.wav"),
                 onda[0, 0].cpu().numpy(),
                 cfg.sample_rate,
             )

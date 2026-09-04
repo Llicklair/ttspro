@@ -9,6 +9,7 @@ npm test          # vitest
 npm run lint      # biome
 npm run typecheck # tsc --noEmit
 npm run dev       # copies models/ + espeak wasm into public/, serves the test page with COOP/COEP
+                  # (PowerShell 5.1 has no `&&`: run `cd web` and `npm run dev` as two lines)
 npx playwright test   # the page end to end in Chromium headless (wasm floor), writes test-results/criterio5.json
 ```
 

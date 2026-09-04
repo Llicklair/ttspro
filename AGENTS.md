@@ -28,6 +28,7 @@ uv run python -m ttspro.export.tts --checkpoint runs/X/G_NNNN.pt  # models/tts.o
 uv run python -m ttspro.train.inicializar --coqui <carpeta> --salida runs/init/G_0.pt  # partir del VITS de coqui
 
 # el demo en el navegador (copia modelos y espeak a web/public y sirve con COOP/COEP)
+# PowerShell 5.1 no acepta `&&`: dos lineas, `cd web` y luego `npm run dev`
 cd web && npm run dev                # http://localhost:5173
 cd web && npx playwright test        # criterio 5: Chromium headless, wasm, fp16 (TTSPRO_PRECISION="" para fp32)
 ```

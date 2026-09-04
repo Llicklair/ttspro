@@ -1,0 +1,20 @@
+# TTS pro — invariantes de capas, comprobados con `gb graph . --gate`.
+# Sintaxis: SRC -/-> DST  = ningun modulo bajo SRC importa uno bajo DST.
+#
+# Regla 7 de ARCHITECTURE.md: la inferencia no depende del entrenamiento.
+# Lo que se exporta al navegador (frontend, modelo, export) tiene que poder
+# cargarse sin datasets, sin loaders y sin bucle de entrenamiento. Si un dia
+# ttspro.model importa ttspro.data, el .onnx sigue saliendo, pero el siguiente
+# refactor arrastra el dataset al export y nadie se entera.
+#
+# Los nombres llevan el prefijo ttspro.* porque la raiz del analisis es src/.
+
+INFERENCIA    = ttspro.frontend, ttspro.model, ttspro.export
+ENTRENAMIENTO = ttspro.train, ttspro.data
+
+INFERENCIA -/-> ENTRENAMIENTO
+
+# El frontend de texto no sabe que modelo hay detras (regla 3: es un espejo
+# exacto de web/src/frontend, que tampoco lo sabe).
+ttspro.frontend -/-> ttspro.model
+ttspro.frontend -/-> ttspro.export

@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "nota": "Firmas de los dos grafos (ARCHITECTURE regla 2, ADR 0002). Lo leen tests/terminado y web/src/runtime. Cambiar una firma sin cambiar esto es violación.",
+  "embedding_locutor": {
+    "dim": 256,
+    "encoder": "por-decidir (ECAPA-TDNN | ResNet H/ASP | WavLM destilado) — ver docs/evidencia.md, mediciones pendientes"
+  },
+  "grafos": {
+    "speaker_encoder": {
+      "fichero": "speaker_encoder.onnx",
+      "opset": 17,
+      "frecuencia_entrada_hz": 16000,
+      "entradas": [
+        { "nombre": "onda", "dtype": "float32", "forma": [1, "muestras"], "nota": "mono, 16 kHz, en [-1, 1]; la STFT y el banco mel van dentro del grafo como Conv1d/MatMul" }
+      ],
+      "salidas": [
+        { "nombre": "embedding", "dtype": "float32", "forma": [1, 256], "nota": "normalizado L2" }
+      ]
+    },
+    "tts": {
+      "fichero": "tts.onnx",
+      "opset": 17,
+      "frecuencia_salida_hz": 22050,
+      "entradas": [
+        { "nombre": "tokens", "dtype": "int64", "forma": [1, "longitud"], "nota": "ids de la tabla `simbolos`" },
+        { "nombre": "longitud_tokens", "dtype": "int64", "forma": [1] },
+        { "nombre": "embedding", "dtype": "float32", "forma": [1, 256] },
+        { "nombre": "idioma", "dtype": "int64", "forma": [1], "nota": "índice en `idiomas`" },
+        { "nombre": "ruido_flow", "dtype": "float32", "forma": [1, 192, "frames"], "nota": "regla 5: N(0,1) generado fuera; `frames` lo decide el llamante con margen (p. ej. 4 × longitud)" },
+        { "nombre": "ruido_duracion", "dtype": "float32", "forma": [1, 2, "longitud"], "nota": "regla 5" },
+        { "nombre": "escala_ruido", "dtype": "float32", "forma": [3], "nota": "[noise_scale, noise_scale_w, length_scale]" }
+      ],
+      "salidas": [
+        { "nombre": "onda", "dtype": "float32", "forma": [1, 1, "muestras"] }
+      ]
+    }
+  },
+  "idiomas": ["es", "en"],
+  "simbolos": {
+    "nota": "Tabla de símbolos fonémicos (IPA de espeak-ng) → id. Se rellena al fijar la versión de espeak-ng (ADR 0004); hasta entonces el frontend solo normaliza.",
+    "pad": 0,
+    "tabla": []
+  }
+}

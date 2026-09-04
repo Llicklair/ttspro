@@ -1,0 +1,26 @@
+#!/bin/sh
+# TTS pro — pre-commit. Enganchado UNA vez con: git config core.hooksPath .githooks
+# Ratchet: la deuda heredada pasa, la nueva falla. Presupuesto: < 10 s.
+# Bypass consciente: git commit --no-verify (si te descubres usandolo, investiga por que).
+
+# Lint PRIMERO: tarda milisegundos y caza imports muertos antes de pagar la suite.
+if uv run ruff --version >/dev/null 2>&1; then
+    echo "[ttspro] pre-commit: lint (ruff)..."
+    uv run ruff check src tests || exit 1
+    uv run ruff format --check src tests || exit 1
+else
+    echo "[ttspro] ruff no disponible (uv sync --extra dev); salto el lint." >&2
+fi
+
+# La suite rapida. NO incluye tests/terminado: ese es el criterio del MVP y hoy
+# esta en rojo a proposito (SCOPE.md).
+echo "[ttspro] pre-commit: tests..."
+uv run pytest tests -q || exit 1
+
+# Gate de acoplamiento sobre HECHOS: ciclo de imports nuevo o cruce de una
+# frontera declarada en .gb-boundaries. Nada mas bloquea.
+echo "[ttspro] pre-commit: gate (gb graph . --gate)..."
+gb graph . --gate --since HEAD --color never || exit 1
+
+# Informa, no bloquea: las senales sobre tests son proxies.
+gb check --staged --brief --color never || true

@@ -1,0 +1,55 @@
+[project]
+name = "ttspro"
+version = "0.0.1"
+description = "Multilingual non-autoregressive TTS with one-shot voice cloning, exported to ONNX and run in the browser with ONNX Runtime Web."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Training needs torch with CUDA; install it from the official index for your
+# CUDA version BEFORE `uv sync --extra train` (see README).
+train = [
+    "torch>=2.4",
+    "torchaudio>=2.4",
+    "soundfile>=0.12",
+]
+export = [
+    "onnx>=1.16",
+    "onnxruntime>=1.19",
+]
+# Objective evaluation of the done criterion (SCOPE.md): WER with Whisper,
+# speaker similarity with the exported encoder.
+eval = [
+    "openai-whisper>=20240930",
+    "jiwer>=3.0",
+]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ttspro"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# tests/terminado is the MVP done criterion (SCOPE.md). It is red on purpose
+# until there is a model, so the fast suite skips it; run it explicitly with
+# `uv run pytest tests/terminado -q`.
+norecursedirs = ["terminado", ".*", "node_modules", "web"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

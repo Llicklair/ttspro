@@ -125,6 +125,18 @@ lanza error si no cuadra: ahí no se ha visto, pero la paridad no cubre este cas
 el mismo trato cuando se vea. Lo que sí queda claro: el protocolo es una heurística sobre la
 CLI, no una garantía; la garantía sería una API que devuelva los terminadores, que el WASM no tiene.
 
+## 2026-09-04 · Destruí la descarga de VCTK al extraerla — NEGATIVO, ERROR PROPIO
+
+**Qué pasó.** El enlace de datashare (`download/DS_10283_3443.zip`, 11,7 GB) es un zip
+**envoltorio** con `README.txt` y `VCTK-Corpus-0.92.zip` dentro. Lo guardé con el nombre del
+zip interior; al extraer, el miembro homónimo sobreescribió el archivo que se estaba leyendo:
+`EOFError` en la primera pasada, fichero de 0 bytes en la segunda (`BadZipFile`). bsdtar listaba
+0 entradas por lo mismo. Diagnóstico tardío: leí "zip64 raro" donde había un nombre repetido.
+
+**Consecuencia.** Receta corregida (envoltorio → interior → corpus, nombres reales) y 11,7 GB
+otra vez. Regla para la libreta: cuando un archivo "se corrompe" durante una extracción, mirar
+primero qué se escribe y dónde, no el formato.
+
 ## 2026-09-04 · Paridad Python ↔ JS del frontend completo — VERDE
 
 **Montaje.** `tests/test_frontend_paridad.py`: 24 frases, cuatro etapas comparadas por separado

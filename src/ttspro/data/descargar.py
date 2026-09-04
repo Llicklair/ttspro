@@ -156,12 +156,18 @@ def receta_ljspeech() -> list[Frase]:
 
 def receta_vctk() -> list[Frase]:
     carpeta = RAW / "vctk"
-    zip_ = descargar(VCTK, carpeta / "VCTK-Corpus-0.92.zip")
-    extraer(zip_, carpeta, "vctk")
+    # datashare serves a WRAPPER zip (README.txt + VCTK-Corpus-0.92.zip). Naming the
+    # wrapper after the inner file made extraction overwrite the archive being read
+    # (2026-09-04: EOFError, then a 0-byte file, 11.7 GB re-downloaded). Keep the names.
+    envoltorio = descargar(VCTK, carpeta / "DS_10283_3443.zip")
+    extraer(envoltorio, carpeta, "envoltorio")
+    interior = next(carpeta.rglob("VCTK-Corpus-0.92.zip"))
+    extraer(interior, carpeta / "VCTK-Corpus-0.92", "vctk")
     frases = []
     for txt in sorted(carpeta.rglob("txt/*/*.txt")):
         locutor = txt.parent.name
-        flac = carpeta / "wav48_silence_trimmed" / locutor / f"{txt.stem}_mic1.flac"
+        corpus = txt.parents[2]  # .../VCTK-Corpus-0.92/txt/p225/p225_001.txt
+        flac = corpus / "wav48_silence_trimmed" / locutor / f"{txt.stem}_mic1.flac"
         if flac.exists():
             frases.append(Frase(flac, "en", locutor, txt.read_text(encoding="utf-8").strip()))
     return frases

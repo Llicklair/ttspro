@@ -110,6 +110,21 @@ espeak-ng 1.52.0.
 memoria por el mismo camino interno. `-f` queda prohibido en los dos lados, con el motivo en el
 docstring.
 
+## 2026-09-04 · El protocolo "una línea por trozo" se rompe una vez cada ~200 trozos — NEGATIVO, ARREGLADO
+
+**Montaje.** `preparar` sobre el manifiesto de OpenSLR es (24 437 frases) en lotes de 200 frases.
+
+**Resultado.** Primer lote: 223 líneas para 224 trozos. Los 216 trozos de las primeras 200
+frases, fonemizados **uno a uno**, dan todos exactamente una línea: el fallo no es de un trozo,
+es de la interacción entre dos consecutivos en el mismo flujo (espeak fusiona o suprime una
+cláusula según lo que haya alrededor). No se ha aislado el par exacto.
+
+**Consecuencia.** `fonemizar_lotes` biseca el lote cuando el recuento no cuadra hasta dejar el
+culpable solo y toma su salida real. El lado JS fonemiza frase a frase (pocos trozos por llamada) y
+lanza error si no cuadra: ahí no se ha visto, pero la paridad no cubre este caso y hay que darle
+el mismo trato cuando se vea. Lo que sí queda claro: el protocolo es una heurística sobre la
+CLI, no una garantía; la garantía sería una API que devuelva los terminadores, que el WASM no tiene.
+
 ## 2026-09-04 · Paridad Python ↔ JS del frontend completo — VERDE
 
 **Montaje.** `tests/test_frontend_paridad.py`: 24 frases, cuatro etapas comparadas por separado

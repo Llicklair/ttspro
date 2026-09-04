@@ -38,7 +38,8 @@ cita no ata. Una regla entra aquí solo si alguna vez se va a poder decir que al
    `ttspro.frontend` no importan `ttspro.train` ni `ttspro.data`. Declarado en
    [.gb-boundaries](.gb-boundaries) y gateado en el pre-commit.
 
-8. **Presupuestos, no deseos.** Descarga total ≤ 80 MB; una frase de 10 palabras en < 3 s con el
+8. **Presupuestos, no deseos.** Descarga total ≤ 110 MB (era 80 hasta el 2026-09-04: ADR 0005,
+   enmienda, para partir del VITS de VCTK de coqui); una frase de 10 palabras en < 3 s con el
    EP `wasm` en Chromium headless; RTF < 1 con `webgpu` en una GPU integrada. Se miden en
    `tests/terminado` y se anotan en [docs/evidencia.md](docs/evidencia.md). Superarlos es un bug de
    arquitectura, no un problema de rendimiento a optimizar luego.

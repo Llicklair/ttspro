@@ -25,6 +25,11 @@ uv run python -m ttspro.export.speaker_encoder                 # models/speaker_
 uv run python -m ttspro.data.preparar --manifiesto data/manifests/X.tsv --salida cache/X
 uv run python -m ttspro.train.entrenar --cache cache/X --salida runs/X --batch 16 --fp16
 uv run python -m ttspro.export.tts --checkpoint runs/X/G_NNNN.pt  # models/tts.onnx (+ .fp16)
+uv run python -m ttspro.train.inicializar --coqui <carpeta> --salida runs/init/G_0.pt  # partir del VITS de coqui
+
+# el demo en el navegador (copia modelos y espeak a web/public y sirve con COOP/COEP)
+cd web && npm run dev                # http://localhost:5173
+cd web && npx playwright test        # criterio 5: Chromium headless, wasm, fp16 (TTSPRO_PRECISION="" para fp32)
 ```
 
 ## Gates

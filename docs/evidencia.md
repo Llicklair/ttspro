@@ -278,6 +278,39 @@ reducido: descarga total ≈ 104 MB frente al presupuesto de 80 (ADR 0005). La d
 Marcos y está abierta; las salidas posibles: subir el presupuesto con ADR, recortar espeak a es+en
 (−15 MB), o destilar al modelo pequeño después con el grande como maestro.
 
+## 2026-09-04 · El demo en el navegador, medido con Playwright — CRITERIO 5 EN ROJO POR NÚMEROS, NO POR CÓDIGO
+
+**Montaje.** `web/` con Vite (COOP/COEP), ONNX Runtime Web 1.29, espeak-ng WASM con `locateFile`,
+página `index.html` (cargar modelos → voz de referencia por fichero o micrófono → texto →
+reproducir). `web/e2e/demo.spec.ts` en Chromium headless (sin WebGPU: mide el suelo wasm),
+4 hilos wasm, `crossOriginIsolated=true`, referencia de 3,8 s, frase de 10 palabras
+(123 tokens con blanks). Modelo portado de coqui, sin afinar.
+
+| | fp32 | fp16 |
+|---|---|---|
+| Carga encoder + tts | 1,1 + 3,5 s | 1,1 + 5,1 s |
+| Frontend (espeak wasm, 1 frase) | 184 ms | 171 ms |
+| Modelo (2,68 s de audio) | 2 494 ms · RTF 0,93 | 2 795 ms · RTF 1,04 |
+| **Total síntesis** | **2 761 ms** | **3 035 ms** |
+| Descarga: tts + encoder | 121,0 + 27,4 | 61,2 + 14,2 |
+| ORT wasm (`jsep`, con WebGPU) | 27,8 | 27,8 |
+| espeak-ng wasm | 18,5 | 18,5 |
+| **Descarga total (bruta)** | 194,7 MB | **121,6 MB** |
+
+Los wasm de ORT: `simd-threaded` 14,0 MB (sin WebGPU), `jspi` 16,0, `jsep` 27,8 (WebGPU),
+`asyncify` 25,7. El bundle por defecto de `onnxruntime-web` carga `jsep` aunque se pida solo
+wasm. Comprimido (gzip de Vite): espeak 9,3 MB, ORT jsep 6,6 MB; los `.onnx` fp16 apenas
+comprimen → transferencia fp16 ≈ **91 MB**.
+
+**Consecuencia.** El criterio 5 (< 3 s y ≤ 110 MB) está en rojo por 35 ms y por 11,6 MB brutos,
+con un modelo que aún no se ha afinado y en la máquina de desarrollo. Tres palancas, por coste:
+servir comprimido (91 MB, gratis en cualquier hosting estático; habría que decidir si el
+presupuesto cuenta bytes transferidos), cargar `onnxruntime-web/wasm` (14 MB) cuando no hay
+WebGPU (−14 MB solo para esos usuarios), y recortar espeak a es+en (−15 MB). Y para el tiempo:
+WebGPU en un navegador real, que es lo que todavía no se ha medido. **Lo que este montaje no
+mide:** calidad (el audio sale del modelo sin afinar, en inglés reconocible), WebGPU, ni un
+móvil.
+
 ---
 
 ## Mediciones pendientes que deciden algo

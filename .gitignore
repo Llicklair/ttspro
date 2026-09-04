@@ -11,6 +11,10 @@ build/
 # Node
 node_modules/
 web/dist/
+# static copies made by `npm run preparar` (ORT wasm, espeak wasm, models)
+web/public/ort/
+web/public/espeak/
+web/public/models/
 
 # Model weights and data never go in git (data/README.md has the table)
 models/*.onnx

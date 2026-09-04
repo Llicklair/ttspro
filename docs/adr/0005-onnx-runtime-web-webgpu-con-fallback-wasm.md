@@ -29,6 +29,16 @@ fallback op a op. Eso es lo que hay que evitar por diseño, no por perfilado.
 - Hilos WASM sí: el demo se sirve con COOP/COEP. Está documentado en `web/README.md` porque es la
   causa número uno de "en local va y en producción no".
 
+## Enmienda 2026-09-04: el presupuesto sube de 80 a 110 MB
+
+Decisión de Marcos, con el dato de [evidencia](../evidencia.md): el VITS de VCTK de coqui
+(Apache 2.0) carga tensor a tensor en la configuración base y habla sin entrenar, lo que convierte
+semanas de entrenamiento en horas de afinado. Es la configuración base (61 MB fp16), no la
+reducida (31 MB). Descarga total prevista: 61 + 14,2 (encoder) + 18,5 (espeak) + ~10 (ORT) ≈
+**104 MB**. La regla 8 pasa a **≤ 110 MB**; el criterio 5 de SCOPE, igual. El modelo reducido
+sigue existiendo (`config_reducida()`) como destino de una destilación futura si el peso duele
+en el demo; y el recorte de espeak a es+en (−15 MB) sigue siendo la palanca barata.
+
 ## Consecuencias
 
 - Nada de `STFT`, `RandomNormal`, ops de `com.microsoft` ni bucles `Loop`/`Scan` en el grafo

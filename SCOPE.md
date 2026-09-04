@@ -53,7 +53,7 @@ Lo que comprueba, en orden, y por qué cada cosa:
    en VCTK) en cuanto haya una primera medición en [docs/evidencia.md](docs/evidencia.md).
 5. **En el navegador**: Playwright + Chromium headless con el EP `wasm`, una frase de 10 palabras
    en < 3 s desde que el modelo está cargado, y descarga total (los dos `.onnx` + wasm de ORT +
-   espeak) ≤ 80 MB.
+   espeak) ≤ 110 MB (80 hasta el 2026-09-04; ADR 0005, enmienda).
 
 Que el criterio sea BUENO sigue sin poder juzgarlo ninguna herramienta (`exit 0` también pasa): que
 el audio suene bien lo juzga una persona, y esa escucha se anota en evidencia con fecha, no en el

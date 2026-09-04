@@ -14,6 +14,7 @@ import { trocear } from "./trocear.ts";
 export interface Simbolos {
   pad: number;
   tabla: string[];
+  blank_entre_tokens?: boolean;
 }
 
 export async function fonemasDeFrase(texto: string, idioma: string): Promise<string> {
@@ -41,7 +42,14 @@ export function ids(fonemas: string, simbolos: Simbolos): number[] {
       `símbolos fuera de models/contrato.json: ${JSON.stringify(desconocidos)} en ${JSON.stringify(fonemas)}. Añádelos a la tabla en los dos lados, no los ignores.`,
     );
   }
-  return [...fonemas].map((c) => tabla.get(c) as number);
+  const secuencia = [...fonemas].map((c) => tabla.get(c) as number);
+  if (!simbolos.blank_entre_tokens) return secuencia;
+  // VITS add_blank: pad id 0 before, between and after every symbol.
+  const conBlank: number[] = new Array(2 * secuencia.length + 1).fill(0);
+  secuencia.forEach((id, i) => {
+    conBlank[2 * i + 1] = id;
+  });
+  return conBlank;
 }
 
 export async function tokenizar(

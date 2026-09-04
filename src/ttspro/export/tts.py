@@ -44,11 +44,17 @@ def config_por_defecto() -> ConfigSintetizador:
 
 
 def cargar(checkpoint: Path | None, cfg: ConfigSintetizador) -> Sintetizador:
-    modelo = Sintetizador(cfg)
+    """A checkpoint that carries its `cfg` decides the architecture (the model
+    ported from coqui is base-sized; the default config is the reduced one)."""
     if checkpoint is not None:
-        estado = torch.load(checkpoint, map_location="cpu")
+        estado = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        if "cfg" in estado:
+            for k, v in estado["cfg"].items():
+                setattr(cfg, k, v)
+        modelo = Sintetizador(cfg)
         modelo.load_state_dict(estado["modelo"] if "modelo" in estado else estado)
-    return modelo
+        return modelo
+    return Sintetizador(cfg)
 
 
 def entradas_ejemplo(cfg: ConfigSintetizador, longitud: int = 60, frames: int = 400):
@@ -66,8 +72,13 @@ def entradas_ejemplo(cfg: ConfigSintetizador, longitud: int = 60, frames: int = 
 
 def exportar(modelo: Sintetizador, ruta: Path, cfg: ConfigSintetizador) -> onnx.ModelProto:
     modelo.preparar_export()
+    # torch.onnx.export restores the wrapper's ORIGINAL mode when done; a wrapper
+    # born in train mode would drag the model back to train (dropout 0.5 in the
+    # duration predictor) for any reference computed afterwards. Measured
+    # 2026-09-04: 169 vs 186 frames on the same inputs.
+    envoltorio = SintetizadorExport(modelo).eval()
     torch.onnx.export(
-        SintetizadorExport(modelo),
+        envoltorio,
         entradas_ejemplo(cfg),
         str(ruta),
         opset_version=FIRMA["opset"],
@@ -142,6 +153,7 @@ def main() -> None:
     args.salida.parent.mkdir(parents=True, exist_ok=True)
     grafo = exportar(modelo, args.salida, cfg)
     entradas = entradas_ejemplo(cfg)
+    modelo.eval()
     with torch.no_grad():
         esperado = modelo.inferir(*entradas).numpy()
 

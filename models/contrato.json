@@ -48,6 +48,8 @@
   "simbolos": {
     "nota": "Un id por caracter. Indice 0 = pad. Espacio, puntuacion, letras ASCII (espeak emite alguna en marcas de idioma y siglas) y el inventario IPA de VITS/coqui. Un caracter fuera de la tabla hace fallar al frontend en los dos lados, nunca se ignora.",
     "pad": 0,
+    "blank_entre_tokens": true,
+    "nota_blank": "VITS add_blank: el id 0 antes, entre y despues de cada simbolo. Es lo que vio el VITS de VCTK de coqui del que se parte (ttspro.train.inicializar); cambiarlo obliga a reentrenar.",
     "tabla": [
       "_",
       " ", ";", ":", ",", ".", "!", "?", "¡", "¿", "-", "…", "\"", "(", ")", "'",

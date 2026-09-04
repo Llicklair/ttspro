@@ -37,8 +37,10 @@ def test_fonemizar_es_y_en() -> None:
 def test_tokenizar_devuelve_ids_de_la_tabla() -> None:
     fonemas, secuencia = tokenizar("Hola, ¿cómo estás?", "es")
     assert fonemas == "ˈola , ¿ kˈomo estˈas ?"
-    assert len(secuencia) == len(fonemas)
-    assert all(i > 0 for i in secuencia)
+    # VITS add_blank (contrato: blank_entre_tokens): 0 before, between and after
+    assert len(secuencia) == 2 * len(fonemas) + 1
+    assert all(i == 0 for i in secuencia[0::2])
+    assert all(i > 0 for i in secuencia[1::2])
 
 
 def test_simbolo_desconocido_falla_en_voz_alta() -> None:

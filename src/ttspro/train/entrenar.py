@@ -190,13 +190,25 @@ def main() -> None:
     ap.add_argument("--cada-log", type=int, default=50)
     ap.add_argument("--cada-checkpoint", type=int, default=2000)
     ap.add_argument("--reanudar", type=Path, default=None)
+    ap.add_argument(
+        "--init",
+        type=Path,
+        default=None,
+        help="pesos iniciales del generador (ttspro.train.inicializar); optimizadores desde cero",
+    )
     ap.add_argument("--workers", type=int, default=2)
     args = ap.parse_args()
 
     device = torch.device("cpu" if args.cpu or not torch.cuda.is_available() else "cuda")
     cfg = config_por_defecto()
+    inicial = torch.load(args.init, map_location="cpu", weights_only=False) if args.init else None
+    if inicial is not None and "cfg" in inicial:
+        cfg = ConfigSintetizador(**inicial["cfg"])  # the init decides the architecture
     torch.manual_seed(0)
     net_g, net_d, optim_g, optim_d = construir(cfg, device, args.lr)
+    if inicial is not None:
+        net_g.load_state_dict(inicial["modelo"])
+        print(f"generador inicializado desde {args.init}")
     scaler = torch.amp.GradScaler("cuda", enabled=args.fp16 and device.type == "cuda")
     sched_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=0.999875)
     sched_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=0.999875)

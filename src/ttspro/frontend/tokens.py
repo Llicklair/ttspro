@@ -43,7 +43,16 @@ def fonemas_de_frase(texto: str, idioma: str) -> str:
     return " ".join(elementos)
 
 
+@lru_cache(maxsize=1)
+def blank_entre_tokens() -> bool:
+    return bool(
+        json.loads(CONTRATO.read_text(encoding="utf-8"))["simbolos"].get("blank_entre_tokens")
+    )
+
+
 def ids(fonemas: str) -> list[int]:
+    """One id per character; with `blank_entre_tokens` (VITS add_blank) the pad id 0
+    goes before, between and after them: [0, a, 0, b, ..., 0]."""
     t = tabla()
     desconocidos = sorted({c for c in fonemas if c not in t})
     if desconocidos:
@@ -51,7 +60,12 @@ def ids(fonemas: str) -> list[int]:
             f"símbolos fuera de models/contrato.json: {desconocidos!r} en {fonemas!r}. "
             "Añádelos a la tabla en los dos lados, no los ignores."
         )
-    return [t[c] for c in fonemas]
+    secuencia = [t[c] for c in fonemas]
+    if not blank_entre_tokens():
+        return secuencia
+    con_blank = [0] * (2 * len(secuencia) + 1)
+    con_blank[1::2] = secuencia
+    return con_blank
 
 
 def tokenizar(texto: str, idioma: str) -> tuple[str, list[int]]:

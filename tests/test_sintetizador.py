@@ -114,7 +114,7 @@ def test_export_onnx_corre_en_ort_y_solo_usa_ops_de_webgpu(tmp_path) -> None:
     ]
     ruta = tmp_path / "tts.onnx"
     torch.onnx.export(
-        SintetizadorExport(modelo),
+        SintetizadorExport(modelo).eval(),
         entradas,
         str(ruta),
         opset_version=17,

@@ -201,6 +201,31 @@ corre en CPU con la configuración pequeña en la suite rápida (`tests/test_ent
 **Lo que esto no dice:** nada sobre la calidad — el sintetizador no ha visto un dato. El siguiente
 número que importa es pasos/segundo en la 1070 con batch 16 fp16.
 
+## 2026-09-04 · Un paso de entrenamiento real en la GTX 1070 — DECIDE CÓMO SE ENTRENA
+
+**Montaje.** `.scratch/bench_gpu.py`: configuración real (16 M), lote sintético de frases de 6 s
+y 80 tokens, `paso()` de `ttspro.train.entrenar` completo (generador + discriminadores + MAS),
+mediana de 10 pasos tras 3 de calentamiento, VRAM pico de `torch.cuda`.
+
+| Batch | Precisión | s/paso | frases/s | VRAM pico |
+|---|---|---|---|---|
+| 16 | fp16 (autocast + GradScaler) | 2,32 | **6,9** | 3,35 GB |
+| 32 | fp16 | 4,01 | 8,0 | 5,73 GB |
+| 8 | fp16 | 1,62 | 4,9 | 2,46 GB |
+| 8 | fp32 | 1,41 | 5,7 | 3,35 GB |
+| 16 | fp32 | **46,1** | 0,3 | "14 GB": se sale de los 8 y Windows lo pagina a RAM |
+
+La alineación monótona (`ttspro.model.alineacion`, torch en CPU, bucle por frame) cuesta
+**0,36 s** de los 2,32 con (16, 80, 520): el 15 %. El resto es la GPU: Pascal no tiene tensor
+cores y fp16 no acelera el cómputo, solo ahorra memoria.
+
+**Consecuencia.** Se entrena con **fp16 y batch 16** (o 32, si el corpus tiene frases largas y
+la VRAM lo permite); fp32 solo cabe hasta batch 8 y rinde parecido. A 0,43 pasos/s, 100 k pasos
+son ~65 h y 300 k (lo habitual en VITS) ~8 días de máquina encendida. Es el techo decidido
+(no se alquila GPU); la alternativa CPU sería un orden de magnitud peor y no se ha medido.
+Si hace falta acelerar, la palanca es la alineación (0,36 s → numba o cython opcional, regla 11
+lo permite por referencia), no la precisión.
+
 ---
 
 ## Mediciones pendientes que deciden algo
@@ -214,8 +239,9 @@ sube arriba como entrada con fecha.
 - **Ops en WebGPU** (ADR 0005): la lista `ttspro.export.ops_ort_web` es de la documentación, no
   del runtime: cargar `speaker_encoder.fp16.onnx` en Chrome con el EP `webgpu` y ver en el
   perfilador de ORT qué nodos cayeron a CPU. Cero es el objetivo.
-- **Batch en 8 GB** (esta libreta): pasos/segundo y VRAM con batch 16 y 32 en fp16, y el mismo
-  paso en CPU, porque esa es la alternativa decidida si no cabe.
+- **Calidad con datos reales** (SCOPE, criterio 4): el sintetizador no ha visto un dato. Primer
+  corpus (data/README.md), primeras muestras en `runs/<x>/muestras/`, primer WER y SECS. Ese
+  número recalibra los umbrales provisionales del criterio de terminado.
 - **espeak-ng WASM en navegador real** (ADR 0004): los 124 ms por instanciación se midieron en
   node; en Chrome con el wasm cacheado puede ser distinto. Y si el troceado por frase basta para
   que no se note, o hace falta el build recortado a es+en.

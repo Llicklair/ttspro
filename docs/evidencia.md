@@ -381,6 +381,10 @@ sube arriba como entrada con fecha.
 - **Ops en WebGPU** (ADR 0005): la lista `ttspro.export.ops_ort_web` es de la documentación, no
   del runtime: cargar `speaker_encoder.fp16.onnx` en Chrome con el EP `webgpu` y ver en el
   perfilador de ORT qué nodos cayeron a CPU. Cero es el objetivo.
+- **Spike XTTS-v2 en el navegador** (pregunta de Marcos, 2026-09-05): exportar solo el GPT con caché
+  KV a int4 (`MatMulNBits`) y medir tokens/segundo en la 1070 con WebGPU. Umbral para seguir:
+  ~10 tokens/s y calidad int4 audible; por debajo, ADR que lo cierre. Se hace tras el primer
+  modelo afinado, con la GPU libre.
 - **XTTS-v2 como listón** (ADR 0006): WER y SECS de XTTS sobre `eval/` en español e inglés, para
   saber a qué distancia queda el modelo propio; y si el audio sintético castellano de XTTS mejora
   el afinado (medir con y sin).

@@ -13,8 +13,8 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 
 const REFERENCIA = process.env.TTSPRO_REFERENCIA ?? resolve(AQUI, "referencia.wav");
 const FRASE = "The quick brown fox jumps over the lazy dog today.";
-// ".fp16" (default, what would ship) or "" for the fp32 graphs
-const PRECISION = process.env.TTSPRO_PRECISION ?? ".fp16";
+// "" = fp32 (what wasm should run: faster than fp16 there and no NaN); ".fp16" to measure the other
+const PRECISION = process.env.TTSPRO_PRECISION ?? "";
 
 test("carga, clona y sintetiza en wasm", async ({ page }) => {
   const descargas: Record<string, number> = {};

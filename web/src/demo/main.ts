@@ -7,7 +7,7 @@ import { configurarEspeak, versionEspeak } from "../frontend/fonemas.ts";
 import { aWav, decodificar, grabarPCM, reproducir } from "../runtime/audio.ts";
 import type { Contrato } from "../runtime/contrato.ts";
 import { type Locutor, calcularEmbedding } from "../runtime/locutor.ts";
-import { type Proveedor, type Sesion, crearSesion, hilos } from "../runtime/ort.ts";
+import { type Proveedor, type Sesion, crearSesion, hilos, soportaF16 } from "../runtime/ort.ts";
 import { sintetizar } from "../runtime/sintetizador.ts";
 
 configurarEspeak({
@@ -28,9 +28,16 @@ let locutor: Locutor | null = null;
 let ultimaOnda: { onda: Float32Array; sr: number } | null = null;
 
 async function cargarModelos(): Promise<void> {
-  const precision = ($("precision") as HTMLSelectElement).value; // "" | ".fp16"
   const preferido = ($("proveedor") as HTMLSelectElement).value as Proveedor | "auto";
   const proveedores: Proveedor[] = preferido === "auto" ? ["webgpu", "wasm"] : [preferido];
+  let precision = ($("precision") as HTMLSelectElement).value; // "auto" | "" | ".fp16"
+  if (precision === "auto") {
+    // fp16 only where it is both correct and faster: WebGPU with shader-f16.
+    // wasm runs fp16 slower than fp32, and WebGPU without f16 returns NaN.
+    const f16 = proveedores[0] === "webgpu" && (await soportaF16());
+    precision = f16 ? ".fp16" : "";
+    log(`precisión auto → ${precision || "fp32"} (shader-f16: ${f16})`);
+  }
   estado.textContent = "cargando…";
   ($("cargar") as HTMLButtonElement).disabled = true;
   try {
@@ -71,6 +78,13 @@ async function referenciaDesdeOnda(onda: Float32Array, origen: string): Promise<
   }
   locutor = await calcularEmbedding(encoder, contrato, onda);
   const norma = Math.sqrt(locutor.embedding.reduce((s, x) => s + x * x, 0));
+  if (!Number.isFinite(norma)) {
+    log(
+      `${origen}: el encoder devolvió NaN/inf con el proveedor ${encoder.proveedor}; prueba fp32 o wasm`,
+    );
+    locutor = null;
+    return;
+  }
   $("locutor").textContent =
     `${origen}: ${locutor.segundos.toFixed(1)} s de audio → embedding en ${locutor.ms.toFixed(0)} ms (norma ${norma.toFixed(3)})`;
   log($("locutor").textContent ?? "");

@@ -338,6 +338,36 @@ WebGPU en un navegador real, que es lo que todavía no se ha medido. **Lo que es
 mide:** calidad (el audio sale del modelo sin afinar, en inglés reconocible), WebGPU, ni un
 móvil.
 
+## 2026-09-04 · WebGPU de verdad, en la GTX 1070 — fp32 VA (RTF 0,46), fp16 NO
+
+**Montaje.** Chromium headless con `--enable-unsafe-webgpu` sobre el adaptador `nvidia pascal`
+(la 1070), página del demo, proveedor forzado a `webgpu`, log detallado de ORT
+(`?ortlog=verbose`), referencia de 3,8 s, frase de 10 palabras (221 tokens con blanks).
+
+| | fp32 | fp16 |
+|---|---|---|
+| Carga encoder / tts | 3,2 s / 11,6 s (compila shaders) | 10,5 s / 10,5 s |
+| Embedding (3,8 s de audio) | 1,6 s, norma 1,000 | **NaN** |
+| Síntesis 1ª (5,4 s de audio) | 6,6 s · RTF 1,22 (compila) | — |
+| Síntesis 2ª | **2,5 s · RTF 0,46** | — |
+| Nodos en CPU | 9 (encoder) · 553 (tts) | 9 · 578 |
+
+Los 553 nodos en CPU del sintetizador son **andamiaje de formas** del trazado (Unsqueeze 131,
+Concat 93, Gather 88, Reshape 48, ConstantOfShape 24, Cast 12, Range 2…) más 24 `Transpose` de
+los embeddings relativos de la atención, tensores diminutos; todo el cómputo pesado (Conv 226,
+MatMul, LayerNormalization 36, Pad 55…) está en el `JsExecutionProvider`. 37 `MemcpyFromHost`
+son el precio de ese andamiaje. Marcos vio en su Chrome el mismo cuadro: NaN en el encoder fp16
+y un `Reshape` roto en el tts fp16 ("dimension with value zero exceeds…"), ORT avisando de que
+no puede plegar `Exp` en fp16 por falta de kernel CPU.
+
+**Consecuencia.** En WebGPU sin `shader-f16` (Pascal) los grafos fp16 no sirven; el demo elige
+la precisión en "auto": fp16 solo con WebGPU **y** `shader-f16`, fp32 en los demás casos (en wasm
+fp16 es además más lento). El criterio 5 se mide en fp32 en wasm. Queda por comprobar en una GPU
+con `shader-f16` (Turing+, Apple, RDNA) si fp16 es correcto ahí o si el fallo es de kernels de ORT;
+si es lo segundo, la salida es una conversión mixta que deje el predictor de duración y las
+máscaras en fp32. Y el tamaño: fp32 son 148 MB de modelos, muy por encima del presupuesto; el
+peso ya no es un detalle, es el siguiente problema de arquitectura.
+
 ---
 
 ## Mediciones pendientes que deciden algo

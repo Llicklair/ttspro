@@ -27,7 +27,7 @@
     <fieldset>
       <legend>1 · Modelos</legend>
       <label>precisión
-        <select id="precision"><option value=".fp16">fp16</option><option value="">fp32</option></select>
+        <select id="precision"><option value="auto">auto (fp16 solo con WebGPU + shader-f16)</option><option value=".fp16">fp16</option><option value="">fp32</option></select>
       </label>
       <label>proveedor
         <select id="proveedor"><option value="auto">auto (webgpu → wasm)</option><option value="webgpu">webgpu</option><option value="wasm">wasm</option></select>

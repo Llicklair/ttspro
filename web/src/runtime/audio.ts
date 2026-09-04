@@ -32,6 +32,45 @@ export async function grabar(segundos: number, alProgresar?: (s: number) => void
   return fin;
 }
 
+/**
+ * Raw PCM from the microphone at `sampleRate`, no container, no codec:
+ * `decodeAudioData` refuses some MediaRecorder webm blobs (Chrome, 2026-09-04:
+ * "Unable to decode audio data"), so the samples are taken straight from the
+ * graph. ScriptProcessorNode is deprecated but universal; 5 s is nothing.
+ */
+export async function grabarPCM(
+  segundos: number,
+  sampleRate: number,
+  alProgresar?: (s: number) => void,
+): Promise<Float32Array> {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+  });
+  const ctx = new AudioContext({ sampleRate });
+  const fuente = ctx.createMediaStreamSource(stream);
+  const procesador = ctx.createScriptProcessor(4096, 1, 1);
+  const trozos: Float32Array[] = [];
+  procesador.onaudioprocess = (e) => trozos.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  fuente.connect(procesador);
+  procesador.connect(ctx.destination);
+  for (let s = 1; s <= segundos; s++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    alProgresar?.(s);
+  }
+  procesador.disconnect();
+  fuente.disconnect();
+  for (const pista of stream.getTracks()) pista.stop();
+  await ctx.close();
+  const total = trozos.reduce((n, t) => n + t.length, 0);
+  const onda = new Float32Array(total);
+  let pos = 0;
+  for (const t of trozos) {
+    onda.set(t, pos);
+    pos += t.length;
+  }
+  return onda;
+}
+
 let contexto: AudioContext | null = null;
 export function reproducir(onda: Float32Array, sampleRate: number): AudioBufferSourceNode {
   contexto ??= new AudioContext();

@@ -4,7 +4,7 @@
  */
 
 import { configurarEspeak, versionEspeak } from "../frontend/fonemas.ts";
-import { aWav, decodificar, grabar, reproducir } from "../runtime/audio.ts";
+import { aWav, decodificar, grabarPCM, reproducir } from "../runtime/audio.ts";
 import type { Contrato } from "../runtime/contrato.ts";
 import { type Locutor, calcularEmbedding } from "../runtime/locutor.ts";
 import { type Proveedor, type Sesion, crearSesion, hilos } from "../runtime/ort.ts";
@@ -55,10 +55,20 @@ async function cargarModelos(): Promise<void> {
   }
 }
 
+const srEncoder = () => contrato.grafos.speaker_encoder.frecuencia_entrada_hz ?? 16000;
+
 async function referenciaDesde(datos: ArrayBuffer, origen: string): Promise<void> {
+  await referenciaDesdeOnda(await decodificar(datos, srEncoder()), origen);
+}
+
+async function referenciaDesdeOnda(onda: Float32Array, origen: string): Promise<void> {
   if (!encoder) return;
-  const sr = contrato.grafos.speaker_encoder.frecuencia_entrada_hz ?? 16000;
-  const onda = await decodificar(datos, sr);
+  if (onda.length < srEncoder()) {
+    log(
+      `${origen}: solo ${(onda.length / srEncoder()).toFixed(1)} s de audio; hacen falta al menos 3 s`,
+    );
+    return;
+  }
   locutor = await calcularEmbedding(encoder, contrato, onda);
   const norma = Math.sqrt(locutor.embedding.reduce((s, x) => s + x * x, 0));
   $("locutor").textContent =
@@ -77,10 +87,10 @@ $("grabar").addEventListener("click", async () => {
   const boton = $("grabar") as HTMLButtonElement;
   boton.disabled = true;
   try {
-    const blob = await grabar(5, (s) => {
+    const onda = await grabarPCM(5, srEncoder(), (s) => {
       boton.textContent = `grabando… ${s}/5 s`;
     });
-    await referenciaDesde(await blob.arrayBuffer(), "micrófono");
+    await referenciaDesdeOnda(onda, "micrófono");
   } catch (err) {
     log(`micrófono: ${String(err)}`);
   } finally {

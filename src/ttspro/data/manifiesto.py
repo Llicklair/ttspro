@@ -52,5 +52,8 @@ def leer(ruta: Path) -> list[Frase]:
 
 def escribir(ruta: Path, frases: list[Frase]) -> None:
     ruta.parent.mkdir(parents=True, exist_ok=True)
-    lineas = [f"{f.wav}\t{f.idioma}\t{f.locutor}\t{f.texto}" for f in frases]
+    # TSV: a tab or newline inside the text would add columns (VCTK has one, 2026-09-04)
+    tab, nl = chr(9), chr(10)
+    limpio = lambda t: " ".join(t.replace(tab, " ").replace(nl, " ").split())  # noqa: E731
+    lineas = [tab.join([str(f.wav), f.idioma, f.locutor, limpio(f.texto)]) for f in frases]
     ruta.write_text("\n".join(lineas) + "\n", encoding="utf-8")

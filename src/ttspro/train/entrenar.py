@@ -38,8 +38,20 @@ def config_por_defecto() -> ConfigSintetizador:
 
 
 def paso(
-    net_g, net_d, optim_g, optim_d, scaler, lote: dict, cfg: ConfigSintetizador, device, fp16: bool
+    net_g,
+    net_d,
+    optim_g,
+    optim_d,
+    scaler,
+    lote: dict,
+    cfg: ConfigSintetizador,
+    device,
+    fp16: bool,
+    solo_disc: bool = False,
 ) -> dict[str, float]:
+    """One VITS step. `solo_disc` updates the discriminator only (warm-up when the
+    generator comes pre-trained and the discriminator does not: a fresh critic
+    feeds a good generator noise for its first steps)."""
     tokens = lote["tokens"].to(device)
     tokens_len = lote["tokens_len"].to(device)
     spec = lote["spec"].to(device)
@@ -93,10 +105,13 @@ def paso(
         loss_gen, _ = generator_loss(y_d_hat_g)
         loss_gen_all = loss_gen + loss_fm + loss_mel + loss_dur + loss_kl
     optim_g.zero_grad(set_to_none=True)
-    scaler.scale(loss_gen_all).backward()
-    scaler.unscale_(optim_g)
-    grad_g = torch.nn.utils.clip_grad_norm_(net_g.parameters(), 1e9)
-    scaler.step(optim_g)
+    if solo_disc:
+        grad_g = torch.zeros(())
+    else:
+        scaler.scale(loss_gen_all).backward()
+        scaler.unscale_(optim_g)
+        grad_g = torch.nn.utils.clip_grad_norm_(net_g.parameters(), 1e9)
+        scaler.step(optim_g)
     scaler.update()
     return {
         "disc": float(loss_disc),
@@ -179,7 +194,17 @@ def muestras(
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--cache", type=Path, required=True, help="carpeta con indice.pt de ttspro.data.preparar"
+        "--cache",
+        type=Path,
+        required=True,
+        nargs="+",
+        help="carpeta(s) con indice.pt de ttspro.data.preparar; varias se concatenan (es + en)",
+    )
+    ap.add_argument(
+        "--calentar-disc",
+        type=int,
+        default=0,
+        help="pasos iniciales solo del discriminador (generador congelado); util con --init",
     )
     ap.add_argument("--salida", type=Path, required=True)
     ap.add_argument("--batch", type=int, default=16)
@@ -221,7 +246,7 @@ def main() -> None:
         optim_d.load_state_dict(estado["optim_d"])
         paso_n, epoca0 = estado["paso"], estado["epoca"]
 
-    indice = torch.load(args.cache / "indice.pt")
+    indice = [e for carpeta in args.cache for e in torch.load(carpeta / "indice.pt")]
     dataset = DatasetTTS(indice, cfg)
     loader = DataLoader(
         dataset,
@@ -243,7 +268,16 @@ def main() -> None:
         net_d.train()
         for lote in loader:
             metricas = paso(
-                net_g, net_d, optim_g, optim_d, scaler, lote, cfg, device, scaler.is_enabled()
+                net_g,
+                net_d,
+                optim_g,
+                optim_d,
+                scaler,
+                lote,
+                cfg,
+                device,
+                scaler.is_enabled(),
+                solo_disc=paso_n < args.calentar_disc,
             )
             paso_n += 1
             if paso_n % args.cada_log == 0:

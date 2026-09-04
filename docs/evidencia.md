@@ -226,6 +226,58 @@ son ~65 h y 300 k (lo habitual en VITS) ~8 días de máquina encendida. Es el te
 Si hace falta acelerar, la palanca es la alineación (0,36 s → numba o cython opcional, regla 11
 lo permite por referencia), no la precisión.
 
+## 2026-09-04 · ¿Se puede partir de un modelo ya entrenado? — SÍ: EL VITS DE VCTK DE COQUI ENTRA TENSOR A TENSOR
+
+**Montaje.** Pregunta de Marcos: descargar "la versión entrenada" en vez de entrenar. Revisado el
+zoo de coqui (`.models.json`) y los checkpoints de Piper.
+
+| Modelo | Licencia | Encaja con el contrato |
+|---|---|---|
+| YourTTS (coqui, en/fr/pt) | **CC BY-NC-ND 4.0** | no: sin derivados ni uso comercial, no vale ni para afinar; y sin español |
+| XTTS-v2 (coqui, 17 idiomas) | CPML | no: autorregresivo (ADR 0001) y no comercial |
+| Piper (checkpoints de entrenamiento) | MIT | repo de HF tras login; las voces ONNX públicas no clonan |
+| `es/css10/vits` (coqui) | BSD-3 | a medias: grafemas, un locutor, decoder distinto |
+| **`en/vctk/vits` (coqui)** | **Apache 2.0** | **sí**: misma red que mi configuración base, 858 tensores, 22 050 Hz, fonemas espeak con el mismo inventario IPA, condicionamiento de locutor de 256 canales |
+
+`ttspro.train.inicializar` traduce nombres (bloques, weight_norm antigua → parametrizaciones,
+acoplamientos k → 2k porque coqui hace el flip en línea, ConvFlow j → 2j−1 en el predictor,
+`translation/log_scale` → `m/logs`, `cond_layer` → `cond`) y copia el embedding de símbolos
+carácter a carácter: **857 de 858 cargados**, 172 símbolos copiados, 7 nuevos (`- ( )` y cuatro
+diacríticos), solo mi embedding de idioma queda en su inicialización aleatoria y solo su tabla de
+109 locutores sobra. Coqui entrenó con `add_blank`; el frontend lo replica ahora en los dos lados
+(`simbolos.blank_entre_tokens`) y la paridad Python/JS sigue en verde.
+
+**Resultado.** Sin entrenar ni un paso, con la fila original de `emb_g` de cada locutor como
+vector de entrada, cuatro frases en inglés transcritas por Whisper-small:
+
+| Frase | WER |
+|---|---|
+| Hello, how are you today? | 0,00 |
+| The quick brown fox jumps over the lazy dog. | 0,11 ("Brian Fox") |
+| Text to speech in the browser, with voice cloning from a single recording. | 0,31 (guiones y puntuación) |
+| Please call Stella. Ask her to bring these things with her from the store. | 0,07 |
+
+WER medio 0,12, casi todo puntuación. **Esto valida dos cosas a la vez:** que el port es exacto y
+que mi implementación de VITS (atención relativa, flow, splines, HiFi-GAN, `Tile` del ruido) es
+la de referencia, porque unos pesos ajenos hablan a través de ella.
+
+**Bug encontrado por el camino (negativo útil).** Con los pesos entrenados, `tts.onnx` daba
+186 frames y la referencia torch 169 para las mismas entradas. No era numérico: `torch.onnx.export`
+pone el módulo en `eval` para trazar y al acabar **restaura el modo original del envoltorio**,
+que nacía en `train`; la referencia calculada después llevaba el dropout 0,5 del predictor de
+duración. Con pesos aleatorios no se veía porque la proyección del predictor arranca a cero.
+Arreglado (`SintetizadorExport(...).eval()` y `modelo.eval()` antes de la referencia). Tras el
+arreglo: paridad torch ↔ ORT en la onda 3,4·10⁻⁵ en fp32, y **el criterio 2 del terminado pasa**
+(log-mel medio < 0,1 sobre las 24 frases del fixture con el checkpoint portado). En fp16 la onda
+difiere hasta 0,17 en amplitud con la misma longitud; queda por medir en log-mel.
+
+**Consecuencia.** El entrenamiento pasa de "desde cero" a "afinar": el inglés viene hecho y solo
+hay que aprender el condicionamiento con el embedding de WeSpeaker (otro espacio que el `emb_g`
+de coqui) y el español. **Coste:** es la configuración base, 61 MB fp16, no los 31 del modelo
+reducido: descarga total ≈ 104 MB frente al presupuesto de 80 (ADR 0005). La decisión es de
+Marcos y está abierta; las salidas posibles: subir el presupuesto con ADR, recortar espeak a es+en
+(−15 MB), o destilar al modelo pequeño después con el grande como maestro.
+
 ---
 
 ## Mediciones pendientes que deciden algo

@@ -26,6 +26,15 @@ uv run python -m ttspro.data.preparar --manifiesto data/manifests/X.tsv --salida
 uv run python -m ttspro.train.entrenar --cache cache/X --salida runs/X --batch 16 --fp16
 uv run python -m ttspro.export.tts --checkpoint runs/X/G_NNNN.pt  # models/tts.onnx (+ .fp16)
 uv run python -m ttspro.train.inicializar --coqui <carpeta> --salida runs/init/G_0.pt  # partir del VITS de coqui
+uv run python -m ttspro.train.evaluar --checkpoint runs/X/G_NNNN.pt --cache cache/*  # WER y SECS
+uv run python -m ttspro.export.voces --cache cache/openslr_es cache/vctk  # presets del demo
+```
+
+El afinado real lleva la consistencia de locutor (`--scl 9`), que es lo que convierte "una voz"
+en "esta voz"; sin ella el modelo usa el embedding como una pista de estilo floja:
+
+```bash
+uv run python -m ttspro.train.entrenar --cache cache/openslr_es cache/vctk   --salida runs/X --batch 16 --fp16 --scl 9 --reanudar runs/anterior/G_NNNN.pt
 
 # el demo en el navegador (copia modelos y espeak a web/public y sirve con COOP/COEP)
 # PowerShell 5.1 no acepta `&&`: dos lineas, `cd web` y luego `npm run dev`

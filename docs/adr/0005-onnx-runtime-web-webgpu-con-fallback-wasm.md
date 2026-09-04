@@ -42,5 +42,6 @@ fallback op a op. Eso es lo que hay que evitar por diseño, no por perfilado.
   los dos grafos: el speaker encoder son **14,2 MB medidos** (ADR 0002, enmienda), así que al
   sintetizador le quedan ~37 MB en fp16, unos 18 M parámetros. YourTTS base (~30 M según receta)
   **no cabe entero**: o se reduce el modelo (canales del flow y del HiFi-GAN), o se recorta espeak
-  a es+en (~3–4 MB, devolvería 15 MB), o se sube el presupuesto con ADR. Se decide con el primer
-  sintetizador exportado, no antes.
+  a es+en (~3–4 MB, devolvería 15 MB), o se sube el presupuesto con ADR. **Decidido el
+  2026-09-04 con el primer export** ([evidencia](../evidencia.md)): se reduce el modelo a 16 M
+  parámetros (decoder 256, encoder de 4 capas, WN de 3 capas), 31 MB fp16; total previsto ≈ 74 MB.

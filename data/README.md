@@ -16,6 +16,19 @@ sin fila es un bug. Los datos **no** se versionan en git: esta tabla y los scrip
 Cinco segundos por locutor, no vistos en entrenamiento, con licencia CC o consentimiento escrito
 del locutor guardado junto al audio (`eval/<locutor>/CONSENTIMIENTO.md`). Sin eso, no entran.
 
+## Manifiesto
+
+Un fichero TSV por corpus en `data/manifests/`, una frase por línea:
+
+```
+ruta/al/audio.wav<TAB>es<TAB>id_locutor<TAB>Texto tal cual se leyó.
+```
+
+Rutas relativas al manifiesto o absolutas; idioma de `models/contrato.json`. Lo convierte en
+índice de entrenamiento `ttspro.data.preparar`: fonemas con el mismo frontend que el navegador,
+embedding de locutor con el mismo `speaker_encoder.onnx`, y un `resumen.json` que cuenta lo que
+descartó y por qué (símbolos fuera de tabla, duración fuera de 1–12 s, wav ausente).
+
 ## Pendiente
 
 - Decidir el subconjunto de MLS es/en que cabe en el tiempo de entrenamiento de una GTX 1070

@@ -171,6 +171,36 @@ con ruido no garantiza que lo sea con voz; la paridad hay que repetirla con audi
 normalización son fp32 siempre. Escrito en el contrato (`precision`). En CPU el fp16 es más lento
 que el fp32 (82 frente a 61 ms): la ganancia de fp16 es descarga, y velocidad solo en WebGPU.
 
+## 2026-09-04 · El sintetizador exporta entero a un grafo WebGPU, y el tamaño decide la configuración — DECIDE ADR 0005
+
+**Montaje.** VITS (YourTTS: embedding de locutor externo de 256, embedding de idioma sumado al
+de símbolo) reimplementado en `ttspro.model` con el export como restricción: sin `Softplus`
+(Where/Log/Exp), sin `torch.flip` (Gather), splines del predictor de duración sin indexado
+booleano (evaluar todo + Where en vez de NonZero), `&` → `abs(x) <= b` (And no está en
+WebGPU), ruido como entrada y `Tile` para que valga cualquier longitud. Export con pesos
+aleatorios: mide el grafo, no el audio. `uv run python -m ttspro.export.tts`.
+
+| Configuración | Parámetros exportados | fp16 | Cabe (≤ ~37 MB) |
+|---|---|---|---|
+| VITS base (enc 6, WN 4, dec 512) | 30,86 M | 61 MB | no |
+| dec 256 | 20,22 M | 39,7 MB | no |
+| dec 256 + WN 3 en el flow | 18,05 M | ~36 MB | justo |
+| **dec 256 + enc 4 capas + WN 3** | **15,97 M** (enc_p 4,25 · flow 6,52 · dec 3,83 · dp 1,37) | **31,0 MB** | sí, con 5 MB de margen |
+| dec 384 | 24,69 M | ~49 MB | no |
+
+Para la configuración elegida: `tts.onnx` 61,0 MB fp32 / 31,0 MB fp16, **0 ops fuera de
+WebGPU**, paridad torch ↔ ORT en la onda 0,0012 (fp32 y fp16), 1,42 s de audio por frase de 60
+tokens en 116 ms (RTF CPU **0,08** fp32; fp16 0,17 en CPU, que no es su sitio). El encoder
+posterior (8,82 M) no se exporta.
+
+**Consecuencia.** Descarga total prevista: 31 + 14,2 (encoder) + 18,5 (espeak) + ~10 (ORT) ≈
+**74 MB**, dentro de los 80. Si el modelo pequeño no llega a la calidad del criterio, la palanca
+barata es recortar espeak a es+en (devuelve 15 MB al sintetizador), no subir el presupuesto.
+Un paso de entrenamiento completo (MAS en torch vectorizado, pérdidas de VITS, discriminadores)
+corre en CPU con la configuración pequeña en la suite rápida (`tests/test_entrenar.py`).
+**Lo que esto no dice:** nada sobre la calidad — el sintetizador no ha visto un dato. El siguiente
+número que importa es pasos/segundo en la 1070 con batch 16 fp16.
+
 ---
 
 ## Mediciones pendientes que deciden algo

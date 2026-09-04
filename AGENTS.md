@@ -19,6 +19,12 @@ uv run pytest tests -q              # suite rápida: suelo, frontend y paridad P
 uv run pytest tests/terminado -q    # criterio de terminado del MVP — hoy FALLA, no hay modelo
 cd web && npm ci && npm test        # runtime JS: frontend (espeak-ng WASM) y contrato
 gb who --html mapa.html             # el mapa navegable del repo (derivado, no se commitea)
+
+# el ciclo del modelo (ver data/README.md para el manifiesto)
+uv run python -m ttspro.export.speaker_encoder                 # models/speaker_encoder.onnx (+ .fp16)
+uv run python -m ttspro.data.preparar --manifiesto data/manifests/X.tsv --salida cache/X
+uv run python -m ttspro.train.entrenar --cache cache/X --salida runs/X --batch 16 --fp16
+uv run python -m ttspro.export.tts --checkpoint runs/X/G_NNNN.pt  # models/tts.onnx (+ .fp16)
 ```
 
 ## Gates

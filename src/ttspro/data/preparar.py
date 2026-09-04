@@ -29,6 +29,7 @@ from ttspro.data.manifiesto import Frase, leer
 from ttspro.frontend import ids
 from ttspro.frontend.fonemas import fonemizar_lotes
 from ttspro.frontend.normalizar import normalizar
+from ttspro.frontend.tokens import tabla
 from ttspro.frontend.trocear import trocear
 
 RAIZ = Path(__file__).resolve().parents[3]
@@ -118,7 +119,7 @@ def main() -> None:
             tokens = ids(fon)
         except ValueError:
             for c in fon:
-                if c not in ids.__globals__["tabla"]():
+                if c not in tabla():
                     simbolos_fuera[c] += 1
             descartes["símbolo fuera de la tabla"] += 1
             continue

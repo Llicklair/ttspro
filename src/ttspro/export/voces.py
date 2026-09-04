@@ -65,16 +65,27 @@ def desde_cache(caches: list[Path], por_idioma: int) -> tuple[str, list[dict]]:
             clave = (e["idioma"], e["locutor"])
             por_locutor[clave].append(e["embedding"].numpy())
             segundos[clave] += e["segundos"]
+    info_vctk = _info_vctk()
     voces = []
     for idioma in sorted({k[0] for k in por_locutor}):
         candidatos = sorted((k for k in por_locutor if k[0] == idioma), key=lambda k: -segundos[k])
-        for _, locutor in candidatos[:por_idioma]:
+        # Alternate genders: the speakers with most audio in VCTK are all female,
+        # and a preset list of twelve identical-sounding voices is not a preset list.
+        colas: dict[str, list] = {"F": [], "M": [], "?": []}
+        for clave in candidatos:
+            colas[_genero(clave[0], clave[1], info_vctk)].append(clave)
+        elegidos = []
+        while len(elegidos) < por_idioma and any(colas.values()):
+            for g in ("F", "M", "?"):
+                if colas[g] and len(elegidos) < por_idioma:
+                    elegidos.append(colas[g].pop(0))
+        for _, locutor in elegidos:
             media = np.mean(por_locutor[(idioma, locutor)], axis=0)
             media = media / (np.linalg.norm(media) + 1e-8)
             voces.append(
                 {
                     "id": locutor,
-                    "nombre": _etiqueta(idioma, locutor, segundos[(idioma, locutor)]),
+                    "nombre": _etiqueta(idioma, locutor, segundos[(idioma, locutor)], info_vctk),
                     "idioma": idioma,
                     "embedding": media.astype(np.float32).tolist(),
                 }
@@ -82,13 +93,35 @@ def desde_cache(caches: list[Path], por_idioma: int) -> tuple[str, list[dict]]:
     return "wespeaker-resnet34-LM", voces
 
 
-def _etiqueta(idioma: str, locutor: str, seg: float) -> str:
+def _info_vctk() -> dict[str, str]:
+    """speaker-info.txt: `p225  23  F  English  Southern England`."""
+    fichero = next(RAIZ.glob("data/raw/vctk/**/speaker-info.txt"), None)
+    if fichero is None:
+        return {}
+    info = {}
+    for linea in fichero.read_text(encoding="utf-8", errors="replace").splitlines()[1:]:
+        partes = linea.split()
+        if len(partes) >= 4:
+            info[partes[0]] = f"{partes[2]} · {' '.join(partes[3:5])}"
+    return info
+
+
+def _genero(idioma: str, locutor: str, info_vctk: dict[str, str]) -> str:
+    if idioma == "es" and "_" in locutor and len(locutor.split("_")[0]) == 3:
+        return {"f": "F", "m": "M"}.get(locutor.split("_")[0][2], "?")
+    etiqueta = info_vctk.get(locutor, "")
+    return etiqueta.split(" · ")[0] if etiqueta[:1] in ("F", "M") else "?"
+
+
+def _etiqueta(idioma: str, locutor: str, seg: float, info_vctk: dict[str, str]) -> str:
     # OpenSLR es ids look like "arf_00295": country + gender letter
     if idioma == "es" and "_" in locutor and len(locutor.split("_")[0]) == 3:
         pref = locutor.split("_")[0]
         pais = PAISES.get(pref[:2], pref[:2])
         genero = {"f": "F", "m": "M"}.get(pref[2], "?")
         return f"{locutor} · {genero} · español ({pais}) · {seg / 60:.0f} min"
+    if locutor in info_vctk:
+        return f"{locutor} · {info_vctk[locutor]} · {seg / 60:.0f} min"
     return f"{locutor} · {idioma} · {seg / 60:.0f} min"
 
 

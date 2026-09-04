@@ -1,20 +1,24 @@
-Hola, ¿cómo estás?
-El murciélago  vuela   de noche.
-“Comillas tipográficas” y ‘simples’ — con guión largo.
-Pingüino, cigüeña, vergüenza.
-   Espacios   al principio y al final.
-Año 2026: el niño comió jamón.
-¡Qué día tan bonito!
-El Sr. García llegó a las 10:30 h.
-Tres mil quinientos veintidós euros.
-Camión, camión, camión.
-Hello, how are you?
-The quick brown fox jumps over the lazy dog.
-“Smart quotes” and ‘single ones’ – with an en dash.
-Naïve café résumé.
-Dr. Smith arrived at 10:30 a.m.
-Three thousand five hundred and twenty-two dollars.
-Don't stop me now.
-Mixed	tabs and    spaces.
-Café — español e inglés mezclados — mixed together.
-ONNX Runtime Web runs in the browser.
+es	Hola, ¿cómo estás?
+es	El murciélago  vuela   de noche.
+es	“Comillas tipográficas” y ‘simples’ — con guión largo.
+es	Pingüino, cigüeña, vergüenza.
+es	   Espacios   al principio y al final.
+es	Año 2026: el niño comió jamón.
+es	¡Qué día tan bonito!
+es	El Sr. García llegó a las 10:30 h.
+es	Tres mil quinientos veintidós euros; 3,5 kilos.
+es	Camión, camión, camión...
+es	(Entre paréntesis) y "entre comillas".
+es	Café — español e inglés mezclados — mixed together.
+en	Hello, how are you?
+en	The quick brown fox jumps over the lazy dog.
+en	“Smart quotes” and ‘single ones’ – with an en dash.
+en	Naïve café résumé.
+en	Dr. Smith arrived at 10:30 a.m.
+en	Three thousand five hundred and twenty-two dollars; 3.5 kilos.
+en	Don't stop me now.
+en	Mixed	tabs and    spaces.
+en	(In parentheses) and "in quotes".
+en	ONNX Runtime Web runs in the browser.
+en	Wait... what?!
+en	It costs $3,500.00 today.

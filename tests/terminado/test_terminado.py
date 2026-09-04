@@ -41,9 +41,20 @@ def test_2_paridad_pytorch_ort_logmel_menor_que_0_1() -> None:
 
 
 def test_3_paridad_frontend_python_js_con_fonemas() -> None:
-    # La paridad de normalización ya corre en la suite rápida; aquí entra la de
-    # fonemas + ids de token, que necesita espeak-ng en los dos lados (ADR 0004).
-    pytest.fail("criterio 3: pendiente — fonemas e ids de token, Python vs node")
+    # Es exactamente la suite de paridad por etapas (normalizar, trocear, fonemas,
+    # ids) que corre en la suite rápida; aquí se invoca como proceso para que el
+    # criterio no dependa de que alguien recuerde correr la otra suite.
+    import subprocess
+    import sys
+
+    proceso = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/test_frontend_paridad.py", "-q"],
+        cwd=RAIZ,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert proceso.returncode == 0, f"criterio 3: paridad rota:\n{proceso.stdout[-3000:]}"
 
 
 def test_4_wer_menor_que_10_y_secs_mayor_que_0_70() -> None:

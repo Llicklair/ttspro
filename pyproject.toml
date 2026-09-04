@@ -31,6 +31,23 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
 ]
+# Experiments recorded in docs/evidencia.md (pretrained baselines, never shipped).
+exp = [
+    "speechbrain>=1.0",
+    "huggingface_hub>=0.24",
+    "soundfile>=0.12",
+]
+
+# torch/torchaudio come from the PyTorch CUDA 12.6 index (GTX 1070 is sm_61;
+# cu126 wheels still build for Pascal, cu128+ do not). PyPI's Windows wheels are CPU-only.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchaudio = { index = "pytorch-cu126" }
 
 [build-system]
 requires = ["hatchling"]

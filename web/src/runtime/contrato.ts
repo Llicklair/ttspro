@@ -17,6 +17,8 @@ export interface Tensor {
 export interface Grafo {
   fichero: string;
   opset: number;
+  frecuencia_entrada_hz?: number;
+  frecuencia_salida_hz?: number;
   entradas: Tensor[];
   salidas: Tensor[];
 }
@@ -26,7 +28,7 @@ export interface Contrato {
   embedding_locutor: { dim: number; encoder: string };
   grafos: { speaker_encoder: Grafo; tts: Grafo };
   idiomas: string[];
-  simbolos: { pad: number; tabla: string[] };
+  simbolos: { pad: number; tabla: string[]; blank_entre_tokens?: boolean };
 }
 
 export function comprobarFirma(grafo: Grafo, entradas: string[], salidas: string[]): void {

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ttspro — prueba en el navegador</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { max-width: 900px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
+      fieldset { margin: 1rem 0; border: 1px solid #8884; border-radius: 8px; }
+      legend { font-weight: 600; }
+      textarea { width: 100%; min-height: 5rem; font: inherit; }
+      button { font: inherit; padding: .4rem .9rem; }
+      label { display: inline-flex; gap: .4rem; align-items: center; margin-right: 1rem; }
+      .mono { font-family: ui-monospace, monospace; font-size: .9em; white-space: pre-wrap; }
+      #registro { max-height: 14rem; overflow: auto; background: #8881; padding: .5rem; border-radius: 6px; }
+      #estado { font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <h1>ttspro · prueba en el navegador</h1>
+    <p>
+      Texto → fonemas (espeak-ng wasm) → <code>tts.onnx</code>; voz de referencia →
+      <code>speaker_encoder.onnx</code> → embedding. Sin servidor: todo corre aquí con ONNX Runtime Web.
+    </p>
+
+    <fieldset>
+      <legend>1 · Modelos</legend>
+      <label>precisión
+        <select id="precision"><option value=".fp16">fp16</option><option value="">fp32</option></select>
+      </label>
+      <label>proveedor
+        <select id="proveedor"><option value="auto">auto (webgpu → wasm)</option><option value="webgpu">webgpu</option><option value="wasm">wasm</option></select>
+      </label>
+      <button id="cargar">cargar</button>
+      <p id="estado">sin cargar</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>2 · Voz de referencia (3–10 s)</legend>
+      <input id="fichero" type="file" accept="audio/*" disabled />
+      <button id="grabar" disabled>grabar 5 s con el micrófono</button>
+      <p id="locutor" class="mono">—</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>3 · Texto</legend>
+      <label>idioma <select id="idioma"><option value="es">es</option><option value="en" selected>en</option></select></label>
+      <textarea id="texto">Hello, how are you today? Text to speech in the browser, with voice cloning from a single recording.</textarea>
+      <div>
+        <label>noise <input id="noise" type="range" min="0" max="1.5" step="0.01" value="0.667" /> <span id="noise_v"></span></label>
+        <label>noise_w <input id="noise_w" type="range" min="0" max="1.5" step="0.01" value="0.8" /> <span id="noise_w_v"></span></label>
+        <label>length <input id="length" type="range" min="0.5" max="2" step="0.01" value="1.0" /> <span id="length_v"></span></label>
+        <label>semilla <input id="semilla" type="number" value="0" style="width:5rem" /></label>
+      </div>
+      <p>
+        <button id="sintetizar" disabled>sintetizar y reproducir</button>
+        <button id="repetir">repetir</button>
+        <a id="descargar" hidden>descargar wav</a>
+      </p>
+      <p id="medidas" class="mono">—</p>
+      <p id="fonemas" class="mono">—</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Registro</legend>
+      <pre id="registro" class="mono"></pre>
+    </fieldset>
+
+    <script type="module" src="/src/demo/main.ts"></script>
+  </body>
+</html>

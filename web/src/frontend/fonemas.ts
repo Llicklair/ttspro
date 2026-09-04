@@ -18,11 +18,19 @@ import ESpeakNg from "espeak-ng";
 // Language id used by the model -> espeak-ng voice. Same table in fonemas.py.
 const VOCES: Record<string, string> = { es: "es", en: "en-us" };
 
+/** Extra Emscripten options, e.g. `locateFile` in the browser (Vite rewrites
+ * `import.meta.url`, so the wasm must be pointed at explicitly). Node needs none. */
+let opcionesModulo: Record<string, unknown> = {};
+export function configurarEspeak(opciones: Record<string, unknown>): void {
+  opcionesModulo = opciones;
+}
+
 export async function fonemizarTrozos(trozos: string[], idioma: string): Promise<string[]> {
   if (trozos.length === 0) return [];
   const voz = VOCES[idioma] ?? idioma;
   const flujo = `${trozos.map((t) => `${t} .`).join("\n")}\n`;
   const modulo = await ESpeakNg({
+    ...opcionesModulo,
     arguments: ["-q", "--ipa", "-v", voz, "--phonout", "salida.txt", flujo],
   });
   const salida = modulo.FS.readFile("salida.txt", { encoding: "utf8" });
@@ -40,6 +48,10 @@ export async function fonemizarTrozos(trozos: string[], idioma: string): Promise
 
 export async function versionEspeak(): Promise<string> {
   const lineas: string[] = [];
-  await ESpeakNg({ arguments: ["--version"], print: (s: string) => lineas.push(s) });
+  await ESpeakNg({
+    ...opcionesModulo,
+    arguments: ["--version"],
+    print: (s: string) => lineas.push(s),
+  });
   return lineas.join(" ").trim();
 }

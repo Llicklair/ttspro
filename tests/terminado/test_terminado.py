@@ -130,6 +130,30 @@ def test_4_wer_menor_que_10_y_secs_mayor_que_0_70() -> None:
     pytest.fail("criterio 4: pendiente — WER (Whisper-small) y SECS sobre eval/")
 
 
-def test_5_navegador_wasm_10_palabras_en_menos_de_3s_y_80mb() -> None:
+def test_5_navegador_wasm_10_palabras_en_menos_de_3s_y_110mb() -> None:
+    """Playwright + Chromium headless, EP wasm, the real page: a 10-word sentence
+    synthesized in < 3 s after load, and the total download <= 110 MB
+    (SCOPE criterion 5; ADR 0005 amendment). The e2e lives in web/e2e and
+    writes web/test-results/criterio5.json with what it measured."""
+    import shutil
+    import subprocess
+
     _grafo("tts")
-    pytest.fail("criterio 5: pendiente — Playwright + Chromium headless, EP wasm")
+    _grafo("speaker_encoder")
+    npx = shutil.which("npx")
+    if npx is None:
+        pytest.fail("criterio 5: npx no está en PATH")
+    web = RAIZ / "web"
+    proceso = subprocess.run(
+        [npx, "playwright", "test", "--reporter=line"],
+        cwd=web,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    detalle = proceso.stdout[-3000:] + chr(10) + proceso.stderr[-1500:]
+    assert proceso.returncode == 0, "criterio 5: e2e rojo:" + chr(10) + detalle
+    medido = json.loads((web / "test-results" / "criterio5.json").read_text(encoding="utf-8"))
+    assert medido["proveedor"] == "wasm", medido
+    assert medido["ms_total_sintesis"] < 3000, medido
+    assert medido["mb_descarga_total"] <= 110, medido

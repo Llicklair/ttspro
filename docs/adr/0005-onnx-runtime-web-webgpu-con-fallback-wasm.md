@@ -37,6 +37,8 @@ fallback op a op. Eso es lo que hay que evitar por diseño, no por perfilado.
   en evidencia, nunca una suposición.
 - Playwright headless ejecuta `wasm` pero WebGPU headless es inestable: el criterio de terminado
   mide `wasm`; el RTF en WebGPU se mide a mano y se anota en evidencia con navegador y GPU.
-- Presupuesto de descarga (≤ 80 MB) contando ORT Web (~10 MB de wasm), espeak-ng WASM (~2 MB) y
-  los dos grafos: el sintetizador tiene ~60 MB en fp16, lo que acota el modelo a unos 30 M
-  parámetros. YourTTS base cabe; una versión más grande necesita ADR.
+- Presupuesto de descarga (≤ 80 MB) contando ORT Web (~10 MB de wasm), espeak-ng WASM
+  (**18,5 MB medidos** el 2026-09-04, no los ~2 MB que aquí se supusieron: ADR 0004, enmienda) y
+  los dos grafos: al sintetizador le quedan ~45 MB en fp16, unos 22 M parámetros. YourTTS base
+  cabe justo; una versión más grande necesita ADR, o el build recortado de espeak (es+en, ~3–4 MB)
+  que devolvería el margen.

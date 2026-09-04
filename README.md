@@ -23,11 +23,13 @@ command and it is red. No model yet.
 ## Setup
 
 ```bash
-uv sync --extra dev --extra export
-# training: install torch for your CUDA first, then
-uv sync --extra train
+uv sync --extra dev --extra export --extra train   # torch comes from the cu126 index pinned in pyproject
+winget install eSpeak-NG.eSpeak-NG                # Windows; Debian: apt install espeak-ng (1.52)
 cd web && npm ci
 ```
+
+The text frontend needs espeak-ng 1.52 on both sides: the native executable for Python, the
+`espeak-ng` npm WASM build for the browser. They are held to identical output by a test.
 
 Decision documents (`SCOPE.md`, `ARCHITECTURE.md`, `AGENTS.md`, ADRs, evidence) are in Spanish
 by design; everything publishable is in English.

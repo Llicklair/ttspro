@@ -32,6 +32,23 @@ Si espeak-ng no está en Python, el frontend **lo dice y falla**; no degrada a c
 silencio, porque un modelo entrenado con fonemas y alimentado con letras produce audio que "casi"
 funciona, que es la peor clase de fallo.
 
+## Enmienda 2026-09-04: por qué la CLI y no la API, y qué paquete
+
+Medido el mismo día ([evidencia](../evidencia.md)), tres cosas que la decisión de arriba no
+sabía:
+
+1. **La API C no vale.** `espeak_TextToPhonemes` omite la fase de entonación y devuelve acentos
+   distintos a los de la CLI en palabras función (`ˈænd` frente a `ænd`, 3 de 24 frases). El WASM
+   solo ofrece la CLI, así que Python usa **el ejecutable** también, por `--stdin` y en lotes.
+2. **`-f fichero` está prohibido.** En Windows añade una cláusula de basura de forma no
+   determinista (14 de 20). Texto por stdin o por argumento: 0 de 20.
+3. **El paquete es `espeak-ng` 1.0.2** (npm, ianmarmour): 18,5 MB, GPL-3.0, todos los idiomas,
+   fonemas idénticos al binario 1.52.0 en 24/24. `phonemizer` (2,6 MB, Apache) quedó descartado
+   por llevar solo inglés.
+
+El protocolo compartido queda en `models/contrato.json` (`fonemizador`): un trozo por línea con
+" ." añadido, una línea de salida por trozo, y error si no cuadra.
+
 ## Consecuencias
 
 - espeak-ng es GPL-3. El texto fonémico que produce no es obra derivada, así que los pesos no

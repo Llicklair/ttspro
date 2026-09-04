@@ -13,10 +13,12 @@ en PyTorch, exportado a ONNX y ejecutado en el navegador con ONNX Runtime Web.
 Lo de esta sección se EJECUTA, así que no puede pudrirse en silencio: si miente, falla.
 
 ```bash
-uv sync --extra dev                 # entorno Python (torch se instala aparte: README)
-uv run pytest tests -q              # suite rápida: suelo, paridad del frontend, export
+uv sync --extra dev --extra export --extra train   # torch cu126 viene del índice fijado en pyproject
+winget install eSpeak-NG.eSpeak-NG                # o apt install espeak-ng; ADR 0004, por referencia
+uv run pytest tests -q              # suite rápida: suelo, frontend y paridad Python/JS (necesita node)
 uv run pytest tests/terminado -q    # criterio de terminado del MVP — hoy FALLA, no hay modelo
-cd web && npm ci && npm test        # runtime JS: frontend y carga del modelo
+cd web && npm ci && npm test        # runtime JS: frontend (espeak-ng WASM) y contrato
+gb who --html mapa.html             # el mapa navegable del repo (derivado, no se commitea)
 ```
 
 ## Gates

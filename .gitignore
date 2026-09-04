@@ -24,6 +24,11 @@ eval/**/*.flac
 runs/
 wandb/
 
+# Derived by gb (`gb who --html mapa.html`), regenerated on demand
+mapa.html
+# Scratch experiments (their results live in docs/evidencia.md, not here)
+.scratch/
+
 # OS / editors
 .DS_Store
 Thumbs.db

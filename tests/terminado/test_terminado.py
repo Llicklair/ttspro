@@ -126,8 +126,52 @@ def test_3_paridad_frontend_python_js_con_fonemas() -> None:
 
 
 def test_4_wer_menor_que_10_y_secs_mayor_que_0_70() -> None:
+    """Objective quality on held-out speakers: `ttspro.train.evaluar` synthesizes
+    sentences the model never saw with that speaker's embedding, transcribes them
+    with Whisper and measures speaker cosine. Small on purpose (3 speakers x 2
+    sentences per language): it is a gate, not a paper, and it still takes minutes."""
+    import subprocess
+    import sys
+
     _grafo("tts")
-    pytest.fail("criterio 4: pendiente — WER (Whisper-small) y SECS sobre eval/")
+    hechos_ruta = MODELOS / "tts.export.json"
+    if not hechos_ruta.exists():
+        pytest.fail("criterio 4: no hay models/tts.export.json (exporta con ttspro.export.tts)")
+    checkpoint = json.loads(hechos_ruta.read_text(encoding="utf-8")).get("checkpoint")
+    if not checkpoint or not Path(checkpoint).exists():
+        pytest.fail("criterio 4: el grafo no viene de un checkpoint entrenado (pesos aleatorios)")
+    caches = sorted(p.parent for p in (RAIZ / "cache").glob("*/indice.pt"))
+    if not caches:
+        pytest.fail("criterio 4: no hay cache/*/indice.pt (prepara datos con ttspro.data.preparar)")
+
+    proceso = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ttspro.train.evaluar",
+            "--checkpoint",
+            checkpoint,
+            "--cache",
+            *[str(c) for c in caches],
+            "--locutores",
+            "3",
+            "--frases",
+            "2",
+        ],
+        cwd=RAIZ,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    detalle = proceso.stdout[-2000:] + chr(10) + proceso.stderr[-1500:]
+    assert proceso.returncode == 0, "criterio 4: la evaluación falló:" + chr(10) + detalle
+    resumen = json.loads(
+        Path(checkpoint).with_suffix(".evaluacion.json").read_text(encoding="utf-8")
+    )["resumen"]
+    for idioma in CONTRATO["idiomas"]:
+        assert idioma in resumen, f"criterio 4: sin frases de {idioma} en la evaluación: {resumen}"
+        assert resumen[idioma]["wer_medio"] <= 0.10, f"criterio 4 ({idioma}): {resumen[idioma]}"
+        assert resumen[idioma]["secs_sintesis"] >= 0.70, f"criterio 4 ({idioma}): {resumen[idioma]}"
 
 
 def test_5_navegador_wasm_10_palabras_en_menos_de_3s_y_110mb() -> None:

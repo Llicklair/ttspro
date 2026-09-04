@@ -122,6 +122,55 @@ instanciando el wasm). Web: 7 tests, biome y tsc limpios.
 cubre: que los fonemas sean *buenos* (eso lo dirá el WER), ni caracteres fuera de la tabla de
 `contrato.json` (fallan en voz alta, que es lo buscado, pero solo cuando aparecen).
 
+## 2026-09-04 · Speaker encoder: ECAPA-TDNN (speechbrain) contra ResNet34-LM (WeSpeaker) — DECIDE EL ADR 0002
+
+**Montaje.** `uv run python -m ttspro.export.speaker_encoder --backbone <x>`: features como Conv1d
++ MatMul dentro del grafo (`ttspro.model.fbank`), backbone por referencia, normalización L2,
+compuesto con `onnx.compose`, opset 17. Paridad medida sobre 5 s de ruido gaussiano (semilla 0)
+contra el pipeline propio de cada backbone; latencia en `onnxruntime` CPU, mediana de 10.
+
+| | ECAPA-TDNN `speechbrain/spkrec-ecapa-voxceleb` | ResNet34-LM `Wespeaker/wespeaker-voxceleb-resnet34-LM` |
+|---|---|---|
+| Licencia | Apache-2.0 | CC-BY-4.0 |
+| Cómo llega | torch → export | **ONNX ya publicado**, usado tal cual |
+| Parámetros | 20,77 M | **6,63 M** |
+| Dimensión | 192 | **256** (la del contrato) |
+| Features | fbank speechbrain (hamming periódica, 10·log10, top_db 80) | fbank Kaldi (×32768, quitar DC, preénfasis, hamming no periódica, DFT 512, ln) |
+| Diferencia máx. de mis features vs las suyas | **2,4 dB** en 62 de 80 bandas (coseno del embedding aun así 0,99996; no diagnosticado del todo) | **0,0026** |
+| fp32 | 84,1 MB · coseno 1,0 · 126 ms | **27,4 MB · coseno 1,0 · 61 ms** |
+| fp16 | 42,3 MB · coseno 0,9997 · 99 ms | **14,2 MB · coseno 0,99999** · 82 ms |
+| Ops fuera de WebGPU | 0 (tras cambiar `torch.maximum` → `Where`) | **0** |
+
+**Resultado.** WeSpeaker ResNet34-LM: 3× menos parámetros, 3× menos descarga, 2× más rápido, la
+dimensión del contrato, y sin exportar nada de torch salvo mis dos grafos auxiliares. Las
+métricas publicadas por WeSpeaker para este modelo (EER 0,72 % en Vox1-O) son la misma clase que
+ECAPA (0,80 %); no las he medido yo.
+
+**Consecuencia.** `models/contrato.json` fija el encoder y describe las features. El criterio 1 del
+terminado pasa para `speaker_encoder.onnx`. **Lo que esta medición no dice:** que el coseno sea 1,0
+con ruido no garantiza que lo sea con voz; la paridad hay que repetirla con audio real cuando haya
+`eval/`, y la SECS de verdad sale de ahí.
+
+## 2026-09-04 · El fbank no sobrevive a fp16 y el conversor tiene trampas — NEGATIVO, CAMBIÓ EL DISEÑO
+
+**Montaje.** `onnxruntime.transformers.float16.convert_float_to_float16` sobre el grafo compuesto.
+
+**Resultado.** Embedding NaN. Diagnóstico con todas las salidas intermedias expuestas
+(`.scratch/diag_fp16.py`): el `Conv` del fbank Kaldi produce valores de 1,2 millones (onda ×
+32768) y su cuadrado 4,3 × 10⁹; fp16 llega a 65 504. Tres intentos, tres lecciones:
+
+1. `node_block_list` con los nodos del fbank: sigue NaN. El conversor deja el nodo en fp32 pero
+   guarda en fp16 los tensores **entre** nodos bloqueados.
+2. Bloquear generó dos `Cast` con el mismo nombre (ORT los rechaza) y después dos con el mismo
+   tensor de salida. Parche de deduplicación: funcionaba, pero no arreglaba el punto 1.
+3. **Convertir solo el grafo del backbone antes de componer**, con `keep_io_types`: coseno 0,99999.
+   El conversor además deja el `Cast` de entrada al final de la lista de nodos y el checker exige
+   orden topológico: `_ordenar` en `ttspro.export.speaker_encoder`.
+
+**Consecuencia.** La precisión se decide **por grafo, antes de componer**; el fbank y la
+normalización son fp32 siempre. Escrito en el contrato (`precision`). En CPU el fp16 es más lento
+que el fp32 (82 frente a 61 ms): la ganancia de fp16 es descarga, y velocidad solo en WebGPU.
+
 ---
 
 ## Mediciones pendientes que deciden algo
@@ -129,10 +178,12 @@ cubre: que los fonemas sean *buenos* (eso lo dirá el WER), ni caracteres fuera 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una
 sube arriba como entrada con fecha.
 
-- **Speaker encoder** (ADR 0002): ECAPA-TDNN vs ResNet H/ASP vs WavLM destilado — tamaño en fp16,
-  latencia en `wasm` sobre 5 s de audio, y SECS sobre `eval/`. Es el experimento con más palanca.
-- **Ops en WebGPU** (ADR 0005): con `onnxruntime-web` pinneado, qué ops del grafo exportado caen a
-  CPU. Cero es el objetivo; cualquier otra cifra es un bug de la regla 4.
+- **Speaker encoder con voz real** (ADR 0002): la paridad del grafo compuesto se midió con ruido.
+  Repetir con `eval/` y medir SECS entre locutores distintos y el mismo locutor, que es lo que
+  el modelo va a usar. También la latencia en `wasm` real, no en ORT CPU.
+- **Ops en WebGPU** (ADR 0005): la lista `ttspro.export.ops_ort_web` es de la documentación, no
+  del runtime: cargar `speaker_encoder.fp16.onnx` en Chrome con el EP `webgpu` y ver en el
+  perfilador de ORT qué nodos cayeron a CPU. Cero es el objetivo.
 - **Batch en 8 GB** (esta libreta): pasos/segundo y VRAM con batch 16 y 32 en fp16, y el mismo
   paso en CPU, porque esa es la alternativa decidida si no cabe.
 - **espeak-ng WASM en navegador real** (ADR 0004): los 124 ms por instanciación se midieron en

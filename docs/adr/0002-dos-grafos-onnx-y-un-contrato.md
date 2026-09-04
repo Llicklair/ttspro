@@ -33,6 +33,16 @@ Lo leen el test de paridad de `tests/terminado` y el runtime de `web/`. **Un `.o
 coincide con el contrato no pasa el test**, y eso es lo que impide que Python y JS se separen sin
 que nadie se entere.
 
+## Enmienda 2026-09-04: el encoder es WeSpeaker ResNet34-LM, compuesto
+
+Medido ([evidencia](../evidencia.md)): ECAPA-TDNN de speechbrain pesa 42 MB en fp16, casi todo el
+margen del presupuesto; `Wespeaker/wespeaker-voxceleb-resnet34-LM` pesa 14,2 MB, da 256
+dimensiones, y viene ya en ONNX. `speaker_encoder.onnx` es la composición de tres grafos:
+fbank Kaldi como Conv1d (`ttspro.model.fbank.FbankKaldiConv`, fp32), el ONNX de WeSpeaker (fp16 en
+la variante publicada) y la normalización L2 (fp32). La decisión de arriba —STFT dentro del grafo,
+JS solo remuestrea— se mantiene tal cual; lo que cambia es qué hay detrás. La precisión se decide
+por grafo antes de componer porque el fbank desborda fp16 (misma entrada de evidencia).
+
 ## Consecuencias
 
 - Una voz es un fichero de 256 floats: se puede guardar, compartir y cargar sin el audio original.

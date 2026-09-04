@@ -39,6 +39,8 @@ fallback op a op. Eso es lo que hay que evitar por diseño, no por perfilado.
   mide `wasm`; el RTF en WebGPU se mide a mano y se anota en evidencia con navegador y GPU.
 - Presupuesto de descarga (≤ 80 MB) contando ORT Web (~10 MB de wasm), espeak-ng WASM
   (**18,5 MB medidos** el 2026-09-04, no los ~2 MB que aquí se supusieron: ADR 0004, enmienda) y
-  los dos grafos: al sintetizador le quedan ~45 MB en fp16, unos 22 M parámetros. YourTTS base
-  cabe justo; una versión más grande necesita ADR, o el build recortado de espeak (es+en, ~3–4 MB)
-  que devolvería el margen.
+  los dos grafos: el speaker encoder son **14,2 MB medidos** (ADR 0002, enmienda), así que al
+  sintetizador le quedan ~37 MB en fp16, unos 18 M parámetros. YourTTS base (~30 M según receta)
+  **no cabe entero**: o se reduce el modelo (canales del flow y del HiFi-GAN), o se recorta espeak
+  a es+en (~3–4 MB, devolvería 15 MB), o se sube el presupuesto con ADR. Se decide con el primer
+  sintetizador exportado, no antes.

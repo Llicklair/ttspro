@@ -75,20 +75,14 @@ def version() -> str:
     return salida.split(":", 1)[1].split()[0] if ":" in salida else salida.strip()
 
 
-def fonemizar_lotes(lotes: list[list[str]], idioma: str) -> list[list[str]]:
-    """IPA for the text chunks of many sentences in ONE espeak process.
+def _ejecutar(flujo: str, voz: str) -> list[str]:
+    """One espeak process over `flujo`; returns its non-empty output lines.
 
-    ``lotes[i]`` are the chunks of sentence *i*; the result has the same shape.
+    Text goes through STDIN, never through `-f`: espeak-ng 1.52.0 on Windows
+    appends a garbage clause when reading a file (14 of 20 runs; 0 of 20 via
+    stdin or argv — docs/evidencia.md 2026-09-04). The WASM side passes the same
+    text as an argument; both are memory buffers on the same path inside espeak.
     """
-    trozos = [t for lote in lotes for t in lote]
-    if not trozos:
-        return [[] for _ in lotes]
-    voz = VOCES.get(idioma, idioma)
-    flujo = "".join(f"{t} .\n" for t in trozos)
-    # Text goes through STDIN, never through `-f`: espeak-ng 1.52.0 on Windows
-    # appends a garbage clause when reading a file (14 of 20 runs; 0 of 20 via
-    # stdin or argv — docs/evidencia.md 2026-09-04). The WASM side passes the same
-    # text as an argument; both are memory buffers on the same path inside espeak.
     with tempfile.TemporaryDirectory() as tmp:
         salida = Path(tmp) / "salida.txt"
         proceso = subprocess.run(
@@ -102,16 +96,41 @@ def fonemizar_lotes(lotes: list[list[str]], idioma: str) -> list[list[str]]:
             raise EspeakNoDisponible(
                 f"espeak-ng falló (voz {voz!r}, código {proceso.returncode}): {proceso.stderr}"
             )
-        lineas = [
-            ln.strip()
-            for ln in salida.read_text(encoding="utf-8").replace("\r", "").split("\n")
-            if ln
-        ]
-    if len(lineas) != len(trozos):
-        raise RuntimeError(
-            f"espeak-ng devolvió {len(lineas)} líneas para {len(trozos)} trozos: "
-            f"{trozos!r} -> {lineas!r}"
-        )
+        return [ln.strip() for ln in salida.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def _flujo(trozos: list[str]) -> str:
+    return "".join(f"{t} ." + chr(10) for t in trozos)
+
+
+def _fonemizar_trozos_alineados(trozos: list[str], voz: str) -> list[str]:
+    """One output line per chunk. When espeak breaks the protocol (a chunk that
+    yields no line, or two consecutive chunks that merge), bisect until the
+    culprit is alone and take its real output — empty or joined — instead of
+    failing the whole batch. Measured 2026-09-04 on OpenSLR es: 1 line short in
+    a batch of 224, and no chunk of that batch misbehaves on its own."""
+    if not trozos:
+        return []
+    lineas = _ejecutar(_flujo(trozos), voz)
+    if len(lineas) == len(trozos):
+        return lineas
+    if len(trozos) == 1:
+        return [" ".join(lineas)]
+    mitad = len(trozos) // 2
+    return _fonemizar_trozos_alineados(trozos[:mitad], voz) + _fonemizar_trozos_alineados(
+        trozos[mitad:], voz
+    )
+
+
+def fonemizar_lotes(lotes: list[list[str]], idioma: str) -> list[list[str]]:
+    """IPA for the text chunks of many sentences in ONE espeak process.
+
+    ``lotes[i]`` are the chunks of sentence *i*; the result has the same shape.
+    """
+    trozos = [t for lote in lotes for t in lote]
+    if not trozos:
+        return [[] for _ in lotes]
+    lineas = _fonemizar_trozos_alineados(trozos, VOCES.get(idioma, idioma))
     resultado: list[list[str]] = []
     pos = 0
     for lote in lotes:

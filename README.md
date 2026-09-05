@@ -38,7 +38,11 @@ install):
 - Linux and macOS: **`./instalar.sh`**. uv and Node.js 22 install under `~/.local` without sudo;
   espeak-ng comes from your package manager and is only needed for the Python tests.
 
-Both do exactly this:
+To update an existing install later, `./actualizar.sh` pulls, syncs the Python environment,
+rebuilds the models only when the commits that came in touched the model pipeline (`--modelos`
+forces it) and refreshes the browser side.
+
+Both installers do exactly this:
 
 ```bash
 uv sync --extra dev --extra export          # torch comes from the cu126 index pinned in pyproject

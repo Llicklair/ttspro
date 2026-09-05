@@ -22,6 +22,7 @@ gb who --html mapa.html             # el mapa navegable del repo (derivado, no s
 
 # los modelos, sin corpus y sin entrenar: descarga los pesos publicos y exporta los 4 grafos
 uv run python -m ttspro.export.modelos            # ADR 0009; es el camino de quien clona el repo
+./instalar.sh | instalar.bat                      # arranque completo; ./actualizar.sh trae la ultima version y reconstruye modelos solo si hace falta
 
 # el ciclo del modelo pieza a pieza (ver data/README.md para el manifiesto)
 uv run python -m ttspro.export.speaker_encoder                 # models/speaker_encoder.onnx (+ .fp16)

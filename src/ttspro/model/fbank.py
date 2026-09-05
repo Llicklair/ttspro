@@ -170,3 +170,33 @@ class FbankKaldiConv(nn.Module):
         logmel = torch.log(torch.where(mel < self.eps, torch.full_like(mel, self.eps), mel))
         feats = logmel.transpose(1, 2)
         return feats - feats.mean(dim=1, keepdim=True)
+
+
+class SpecConv(nn.Module):
+    """Linear spectrogram as a strided Conv1d, so it can live inside an ONNX graph.
+
+    Matches ``ttspro.train.mel.spectrogram_torch`` (n_fft 1024, hop 256, hann,
+    reflect padding of (n_fft - hop) / 2, magnitude with a 1e-6 floor), which is
+    what the OpenVoice converter was trained on. ORT Web has no `STFT` op
+    (ADR 0005), hence the convolution.
+    """
+
+    def __init__(self, n_fft: int = 1024, hop_length: int = 256, win_length: int = 1024) -> None:
+        super().__init__()
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.pad = (n_fft - hop_length) // 2
+        ventana = torch.hann_window(win_length)
+        n = torch.arange(n_fft, dtype=torch.float32)
+        k = torch.arange(n_fft // 2 + 1, dtype=torch.float32)
+        angulo = 2.0 * math.pi * k[:, None] * n[None, :] / n_fft
+        nucleo = torch.cat([torch.cos(angulo), -torch.sin(angulo)], dim=0) * ventana[None, :]
+        self.register_buffer("nucleo", nucleo.unsqueeze(1))  # (2F, 1, n_fft)
+
+    def forward(self, onda: torch.Tensor) -> torch.Tensor:
+        """(B, muestras) -> (B, n_fft//2 + 1, frames) magnitude."""
+        x = F.pad(onda.unsqueeze(1), (self.pad, self.pad), mode="reflect")
+        espectro = F.conv1d(x, self.nucleo, stride=self.hop_length)
+        mitad = espectro.shape[1] // 2
+        potencia = espectro[:, :mitad] ** 2 + espectro[:, mitad:] ** 2
+        return torch.sqrt(potencia + 1e-6)

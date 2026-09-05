@@ -69,3 +69,17 @@ def test_banco_mel_cubre_todas_las_frecuencias() -> None:
     # every filter has some support, and the interior bins are covered
     assert (banco.sum(dim=0) > 0).all()
     assert (banco[1:-1].sum(dim=1) > 0).all()
+
+
+def test_spec_conv_coincide_con_spectrogram_torch() -> None:
+    """The converter's spectrogram must be the one it was trained on."""
+    from ttspro.model.fbank import SpecConv
+    from ttspro.train.mel import spectrogram_torch
+
+    torch.manual_seed(0)
+    onda = torch.randn(1, 22050) * 0.3
+    with torch.no_grad():
+        nuestro = SpecConv().eval()(onda)
+    ref = spectrogram_torch(onda, 1024, 256, 1024)
+    assert nuestro.shape == ref.shape
+    assert (nuestro - ref).abs().max() < 1e-3

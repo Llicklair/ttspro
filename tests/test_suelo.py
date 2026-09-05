@@ -41,7 +41,8 @@ def test_scope_tiene_criterio_de_terminado_ejecutable() -> None:
 
 def test_contrato_parsea_y_declara_los_dos_grafos() -> None:
     contrato = json.loads((RAIZ / "models" / "contrato.json").read_text(encoding="utf-8"))
-    assert set(contrato["grafos"]) == {"speaker_encoder", "tts"}
+    # tts + speaker_encoder (ADR 0002), voz + conversor (ADR 0007: cloning as post-processing)
+    assert set(contrato["grafos"]) == {"speaker_encoder", "tts", "voz", "conversor"}
     for nombre, grafo in contrato["grafos"].items():
         assert grafo["fichero"].endswith(".onnx"), nombre
         assert grafo["opset"] >= 17, nombre

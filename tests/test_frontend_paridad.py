@@ -18,9 +18,11 @@ from pathlib import Path
 import pytest
 
 from ttspro.frontend import fonemas_de_frase, ids, normalizar, trocear
+from ttspro.frontend.chat import nombre_legible, normalizar_chat
 
 RAIZ = Path(__file__).resolve().parents[1]
 FRASES = RAIZ / "tests" / "fixtures" / "frontend" / "frases.txt"
+CHAT = RAIZ / "tests" / "fixtures" / "frontend" / "chat.txt"
 CLI_TS = RAIZ / "web" / "src" / "frontend" / "cli.ts"
 
 
@@ -75,3 +77,71 @@ def test_paridad_por_etapas(js, idioma: str, frase: str) -> None:
     fonemas = fonemas_de_frase(frase, idioma)
     assert salida["fonemas"] == fonemas, "etapa: fonemas"
     assert salida["ids"] == ids(fonemas), "etapa: ids"
+
+
+# ---------------------------------------------------------------- chat stage (ADR 0010)
+
+
+def _mensajes() -> list[str]:
+    return [
+        ln.split("	", 1)[1]
+        for ln in CHAT.read_text(encoding="utf-8").splitlines()
+        if ln.strip() and ln.startswith("chat	")
+    ]
+
+
+@pytest.fixture(scope="module")
+def js_chat() -> dict[str, str]:
+    mensajes = _mensajes()
+    salidas = _frontend_js([("chat", m) for m in mensajes])
+    assert len(salidas) == len(mensajes)
+    return {s["frase"]: s["chat"] for s in salidas}
+
+
+@pytest.mark.parametrize("mensaje", _mensajes())
+def test_paridad_chat(js_chat, mensaje: str) -> None:
+    assert js_chat[mensaje] == normalizar_chat(mensaje), "etapa: chat"
+
+
+def test_chat_deja_algo_legible_o_nada() -> None:
+    """Emote-only messages come out EMPTY (the caller skips them); the rest keep words."""
+    assert normalizar_chat("KEKW") == "jajaja"  # laughter, rule 4, wins over the emote list
+    assert normalizar_chat("Kappa :) D: F o7") == ""
+    assert normalizar_chat("😀") == ""
+    assert normalizar_chat("holaaaa q tal todos!!!!") == "hola que tal todos!"
+    assert normalizar_chat("JAJAJAJAJA no me lo creo") == "jajaja no me lo creo"
+    assert normalizar_chat("@Dark_Lord99 tienes razón") == "Dark Lord99 tienes razón"
+    assert normalizar_chat("mira https://x.y/z brutal") == "mira, enlace, brutal"
+    assert len(normalizar_chat("palabra " * 100)) <= 200
+
+
+def _nombres() -> list[str]:
+    return [
+        ln.split("	", 1)[1]
+        for ln in CHAT.read_text(encoding="utf-8").splitlines()
+        if ln.startswith("nombre	")
+    ]
+
+
+@pytest.fixture(scope="module")
+def js_nombres() -> dict[str, str]:
+    nombres = _nombres()
+    salidas = _frontend_js([("nombre", n) for n in nombres])
+    assert len(salidas) == len(nombres)
+    return {s["frase"]: s["chat"] for s in salidas}
+
+
+@pytest.mark.parametrize("usuario", _nombres())
+def test_paridad_nombre(js_nombres, usuario: str) -> None:
+    assert js_nombres[usuario] == nombre_legible(usuario), "etapa: nombre"
+
+
+def test_nombre_legible_dice_algo() -> None:
+    assert nombre_legible("xXDark_Lord99Xx") == "Dark Lord"
+    assert nombre_legible("@mod_ana") == "mod ana"
+    assert nombre_legible("SuperStreamerTV") == "Super Streamer TV"
+    assert nombre_legible("Raúl99") == "Raúl"
+    # nothing sayable left -> the raw name, never an empty author
+    assert nombre_legible("12345") == "12345"
+    assert nombre_legible("xXx") == "xXx"
+    assert nombre_legible("KEKW") == "KEKW"  # no emote list for names: it is what they are called

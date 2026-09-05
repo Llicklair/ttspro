@@ -45,6 +45,7 @@ uv run python -m ttspro.train.entrenar --cache cache/openslr_es cache/vctk   --s
 # PowerShell 5.1 no acepta `&&`: dos lineas, `cd web` y luego `npm run dev`
 cd web && npm run dev                # http://localhost:5173
 cd web && npx playwright test        # criterio 5: Chromium headless, wasm, fp16 (TTSPRO_PRECISION="" para fp32)
+cd web && npx playwright test -g "modo chat"   # ADR 0010: veinte mensajes por la cola, escribe test-results/chat.json
 ```
 
 ## Gates
@@ -79,7 +80,9 @@ contrato, cero Python. Lo único que cruza entre los dos mundos es `models/`.
 Contrato específico de este repo para un agente:
 
 - Tocas el frontend en un lado → tocas el otro y corres la paridad
-  (`uv run pytest tests/test_frontend_paridad.py`). Regla 3.
+  (`uv run pytest tests/test_frontend_paridad.py`). Regla 3. Eso incluye la etapa `chat`
+  (ADR 0010): una abreviatura o un emote nuevo va en `ttspro.frontend.chat` **y** en
+  `web/src/frontend/chat.ts`, y su caso en `tests/fixtures/frontend/chat.txt`.
 - Añades una op o cambias una firma del modelo → compruebas la lista de ops de ORT Web y actualizas
   `models/contrato.json`. Reglas 2 y 4.
 - Mides algo (latencia, tamaño, WER, similitud) → entrada en `docs/evidencia.md` con fecha y

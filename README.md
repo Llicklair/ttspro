@@ -55,6 +55,15 @@ For the Python side of the text frontend you also need espeak-ng 1.52 installed 
 (`winget install eSpeak-NG.eSpeak-NG`, or `apt install espeak-ng`); the browser uses the WASM build
 from npm. A test holds the two to identical output.
 
+## Chat mode
+
+The page's fourth panel reads a Twitch chat aloud ([ADR 0010](docs/adr/0010-modo-chat-para-twitch.md)).
+Type a channel name and connect: it joins anonymously over IRC-on-WebSocket, no account needed.
+Every line goes through a chat normalizer (links, @mentions, emotes, emoji, "jajajaja", "holaaaa",
+"q tal", repeated spam) mirrored in Python and TypeScript, then into a queue that renders the next
+message while the current one plays and drops what has gone stale. Pick the voice policy per
+message: the base voice keeps up on wasm; the converter costs ~3 s a message there and wants WebGPU.
+
 ## Where it stands
 
 Measured on 2026-09-05, full detail in [docs/evidencia.md](docs/evidencia.md).

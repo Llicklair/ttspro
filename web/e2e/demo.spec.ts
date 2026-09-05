@@ -88,3 +88,57 @@ test("carga, elige voz, sintetiza y convierte en wasm", async ({ page }) => {
   writeFileSync(resolve(AQUI, "../test-results/criterio5.json"), JSON.stringify(medido, null, 1));
   console.log(JSON.stringify(medido));
 });
+
+// ---------------------------------------------------------------- chat mode (ADR 0010)
+//
+// A burst of twenty chat lines through the normalizer and the queue, base voice,
+// wasm. What matters is not one latency but whether the reader keeps up: seconds
+// of audio produced per second of synthesis, and how many lines it had to drop.
+
+test("modo chat: veinte mensajes seguidos por la cola, voz base, wasm", async ({ page }) => {
+  page.on("pageerror", (e) => console.log("pageerror:", e.message));
+  await page.goto("/");
+  await page.selectOption("#precision", PRECISION);
+  await page.selectOption("#proveedor", "wasm");
+  await page.click("#cargar");
+  await page.waitForFunction(() => document.querySelectorAll(".voz").length > 0, null, {
+    timeout: 240_000,
+  });
+  await page.selectOption("#politica", "base");
+  const t0 = Date.now();
+  await page.click("#simular");
+  // 20 lines: 19 distinct plus one exact repeat, which the queue must refuse.
+  await page.waitForFunction(
+    () => {
+      const s = (
+        window as unknown as { __ttspro_chat: { estadisticas: () => Record<string, number> } }
+      ).__ttspro_chat.estadisticas();
+      return (
+        s.pendientes === 0 &&
+        s.reproducidos + s.descartadosViejos + s.descartadosLlenos + s.descartadosRepetidos >= 18
+      );
+    },
+    null,
+    { timeout: 300_000 },
+  );
+  // let the last one finish playing
+  await page.waitForFunction(
+    () => document.getElementById("pastilla-chat")?.dataset.estado !== "trabajando",
+    null,
+    { timeout: 60_000 },
+  );
+  const segundosTotales = (Date.now() - t0) / 1000;
+  const stats = await page.evaluate(() =>
+    (
+      window as unknown as { __ttspro_chat: { estadisticas: () => Record<string, number> } }
+    ).__ttspro_chat.estadisticas(),
+  );
+  const medido = { precision: PRECISION || "fp32", proveedor: "wasm", segundosTotales, ...stats };
+  console.log(JSON.stringify(medido));
+  mkdirSync(resolve(AQUI, "../test-results"), { recursive: true });
+  writeFileSync(resolve(AQUI, "../test-results/chat.json"), JSON.stringify(medido, null, 1));
+  expect(stats.reproducidos).toBeGreaterThanOrEqual(15);
+  expect(stats.descartadosRepetidos).toBe(1);
+  // The queue must at least keep up with itself: audio out faster than synthesis in.
+  expect(stats.velocidad).toBeGreaterThan(1);
+});

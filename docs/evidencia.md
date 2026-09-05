@@ -703,11 +703,83 @@ dichos, no escondidos.
 
 ---
 
+## 2026-09-05 · Modo chat: dicción sobre mensajes de Twitch y caudal de la cola
+
+**Montaje.** Petición de Marcos: «afinar la dicción» y «procesar muchos mensajes» para un chat de
+Twitch ([ADR 0010](adr/0010-modo-chat-para-twitch.md)). Dos medidas: (a) WER con Whisper-small
+sobre 25 frases (19 mensajes de `tests/fixtures/frontend/chat.txt` ya normalizados + 6 frases
+normales de directo), 3 semillas cada una, `tts.onnx` de Piper en ORT CPU; (b) veinte mensajes
+seguidos por la cola en Chromium headless, wasm, fp32, voz base.
+
+**(a) Los parámetros de decodificación no son la palanca.** Barrido de `noise`, `noise_w`,
+`length`:
+
+| Ajuste | WER medio | mediana | frases perfectas |
+|---|---|---|---|
+| **defecto (0,667, 0,5, 1,0)** | **0,282** | 0,143 | 24/75 |
+| sobrio (0,5, 0,3, 1,0) | 0,304 | 0,143 | 23/75 |
+| seco (0,333, 0,2, 1,0) | 0,330 | 0,182 | 24/75 |
+| sobrio rápido (0,5, 0,3, 0,9) | 0,295 | 0,143 | 24/75 |
+| sobrio lento (0,5, 0,3, 1,1) | 0,315 | 0,143 | 24/75 |
+
+Bajar el ruido no mejora nada y «seco» empeora. Los valores por defecto se quedan. El WER de 0,28
+frente a 0,03 en frases limpias **no es el sintetizador: es el texto**. Frase por frase, lo que
+falla es lo que el chat trae y ninguna decodificación arregla: nombres de usuario con cifras
+(«Dark Lord99» → «Daclord 99»), alfanuméricos («C3PO R2D2»), inglés entero («Don't stop me now»),
+risas («jajaja» → «caja ja ja» para Whisper, que es un juez, no un oyente), y **préstamos del
+inglés** que espeak lee con reglas castellanas: «streamer» → «estréamer», «follow» → «follogo».
+
+**Lo que sí es palanca: el texto.** Tras añadir la tabla de préstamos respelados (regla 6b) y las
+pausas alrededor de «enlace», Whisper transcribe la palabra inglesa que se quería:
+
+| Escrito | Antes (se leía tal cual) | Ahora (respelado) | Whisper oye |
+|---|---|---|---|
+| streamer | «estréamer», «estreamer» | estrímer | **streamer** 3/3 |
+| spoiler | «esp Organa», «spoiler» 1/3 | espóiler | **spoiler** 3/3 |
+| boss | — | bos | **boss** 3/3 |
+| speedrun | — | espídran | **speedrun** 2/3 |
+| hype | «IP», «it» | jaip | **hype** 2/3 |
+| «mira esto enlace brutal» | «en la fatal» | «mira esto, enlace, brutal» | enlace con pausa |
+
+Los nombres de usuario van por `nombre_legible`: «xXDark_Lord99Xx» → «Dark Lord»,
+«SuperStreamerTV» → «Super Streamer TV», y «12345» se queda «12345» antes que dejar el mensaje sin
+autor.
+
+**(b) Caudal.** Veinte líneas de chat en ráfaga (150 ms entre ellas), una de ellas solo emotes y
+otra repetida:
+
+| | |
+|---|---|
+| Leídas | 18 |
+| Saltadas por quedar vacías (solo emotes) | 1 |
+| Rechazadas por repetidas | 1 |
+| Descartadas por viejas o cola llena | 0 |
+| Síntesis media por mensaje (frontend + tts) | 509 ms |
+| **Velocidad: segundos de audio por segundo de síntesis** | **×3,3** |
+| Tiempo total hasta oír las veinte | 31,8 s |
+| Espera media llegada → sonar | 12,7 s |
+
+Con la voz base en wasm el lector produce audio 3,3 veces más deprisa de lo que lo consume: **va al
+día** con un chat de unos 30 mensajes por minuto de esta longitud, y la espera de 12,7 s es la de
+una ráfaga artificial, no la de un chat real. Con conversor (~2,9 s por mensaje en wasm) la
+velocidad cae por debajo de 1 y la cola empieza a descartar: para «una voz por usuario» hace falta
+WebGPU o aceptar el retraso. Medición pendiente abajo.
+
+**Falso positivo que salió de la cola.** El primer e2e no detectaba el mensaje repetido: `encolar`
+arranca el bucle en el acto, que saca el primer mensaje de `pendientes` para renderizarlo, y el
+duplicado llegaba 150 ms después con la cola «vacía». Ahora lo que se está renderizando o sonando
+cuenta como en espera. No lo vio la intuición: lo vio el número 0 donde tenía que haber un 1.
+
+---
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una
 sube arriba como entrada con fecha.
 
+- **Modo chat con conversor en WebGPU** (ADR 0010): la política «una voz por usuario» pasa cada
+  mensaje por el conversor; en wasm son ~2,9 s y la cola descarta. Medir velocidad (audio/síntesis)
+  en la GTX 1070 con WebGPU fp32: si supera ×1 con margen, la voz por usuario es viable en directo.
 - **Speaker encoder con voz real** (ADR 0002): la paridad del grafo compuesto se midió con ruido.
   Repetir con `eval/` y medir SECS entre locutores distintos y el mismo locutor, que es lo que
   el modelo va a usar. También la latencia en `wasm` real, no en ORT CPU.

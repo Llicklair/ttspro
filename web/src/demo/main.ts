@@ -6,12 +6,15 @@
  * Every number shown is measured in this browser.
  */
 
+import { nombreLegible, normalizarChat } from "../frontend/chat.ts";
 import { configurarEspeak, versionEspeak } from "../frontend/fonemas.ts";
 import { aWav, decodificar, grabarPCM, reproducir } from "../runtime/audio.ts";
+import { Cola, type Estadisticas, type Mensaje } from "../runtime/cola.ts";
 import type { Contrato } from "../runtime/contrato.ts";
 import { convertir, vectorVoz } from "../runtime/conversor.ts";
 import { type Proveedor, type Sesion, crearSesion, hilos, soportaF16 } from "../runtime/ort.ts";
 import { sintetizar } from "../runtime/sintetizador.ts";
+import { conectarTwitch } from "./twitch.ts";
 import { Visor, pintarNivel } from "./visor.ts";
 
 configurarEspeak({
@@ -94,7 +97,15 @@ async function cargarModelos(): Promise<void> {
     estado.textContent = "preparando fonemizador y voces…";
     log(`espeak-ng: ${await versionEspeak()}`);
     pintarVoces();
-    for (const id of ["fichero", "grabar", "sintetizar", "sinConvertir"])
+    for (const id of [
+      "fichero",
+      "grabar",
+      "sintetizar",
+      "sinConvertir",
+      "conectar",
+      "enviar",
+      "simular",
+    ])
       ($(id) as HTMLButtonElement).disabled = false;
     const resumen = `tts ${t.proveedor} · conversor ${c.proveedor} · voz ${grafoVoz.proveedor} · ${mb} MB · ${hilos()} hilo(s) wasm · aislado=${crossOriginIsolated}`;
     estado.textContent = `listo · ${resumen}`;
@@ -312,3 +323,193 @@ for (const id of ["noise", "noise_w", "length", "tau"]) {
   entrada.addEventListener("input", pintar);
   pintar();
 }
+
+// ---------------------------------------------------------------- chat (ADR 0010)
+//
+// A stream of messages instead of one sentence: chat normalizer -> queue that
+// renders the next message while the current one plays. The voice policy
+// decides whether each message goes through the converter, which on wasm costs
+// ~3 s per message and therefore decides whether the reader keeps up.
+
+const chatLog = $("chatLog");
+const anotar = (usuario: string, texto: string, nota = "") => {
+  const linea = document.createElement("div");
+  const quien = document.createElement("b");
+  quien.textContent = usuario;
+  linea.append(quien, ` ${texto}`);
+  if (nota) {
+    const n = document.createElement("i");
+    n.textContent = `  · ${nota}`;
+    linea.append(n);
+  }
+  chatLog.prepend(linea);
+  while (chatLog.childElementCount > 60) chatLog.lastElementChild?.remove();
+};
+
+function vozParaUsuario(usuario: string): Float32Array | null {
+  if (!voces || voces.voces.length === 0) return null;
+  let h = 0;
+  for (const c of usuario) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return Float32Array.from(voces.voces[h % voces.voces.length].voz);
+}
+
+async function sintetizarMensaje(m: Mensaje) {
+  if (!tts || !voces) return null;
+  const semilla = Number(($("semilla") as HTMLInputElement).value);
+  const base = await sintetizar(
+    tts,
+    contrato,
+    m.texto,
+    ($("idioma") as HTMLSelectElement).value,
+    voces.base.embedding_tts ? Float32Array.from(voces.base.embedding_tts) : null,
+    {
+      noise_scale: Number(($("noise") as HTMLInputElement).value),
+      noise_scale_w: Number(($("noise_w") as HTMLInputElement).value),
+      length_scale: Number(($("length") as HTMLInputElement).value),
+      semilla,
+    },
+  );
+  if (!m.voz || !grafoConversor) return { onda: base.onda, sampleRate: base.sampleRate };
+  const r = await convertir(
+    grafoConversor,
+    contrato,
+    base.onda,
+    Float32Array.from(voces.base.voz),
+    m.voz,
+    {
+      tau: Number(($("tau") as HTMLInputElement).value),
+      semilla,
+    },
+  );
+  return { onda: r.onda, sampleRate: r.sampleRate };
+}
+
+const pintarStats = (s: Estadisticas, evento: string, m?: Mensaje) => {
+  $("colaStats").textContent =
+    `pendientes ${s.pendientes} · leídos ${s.reproducidos} · descartados ` +
+    `${s.descartadosViejos} viejos, ${s.descartadosLlenos} por cola llena, ${s.descartadosRepetidos} repetidos · ` +
+    `espera media ${(s.esperaMediaMs / 1000).toFixed(1)} s · síntesis media ${s.sintesisMediaMs.toFixed(0)} ms · ` +
+    `velocidad ×${s.velocidad.toFixed(2)}`;
+  if (evento === "sonando" && m) anotar(m.usuario ?? "", m.texto, "sonando");
+  else if ((evento === "viejo" || evento === "lleno") && m)
+    anotar(m.usuario ?? "", m.texto, `descartado: ${evento}`);
+  else if (evento.startsWith("error") && m) anotar(m.usuario ?? "", m.texto, evento);
+  if (s.pendientes > 0 || evento === "sonando")
+    pastilla("chat", `${s.pendientes} en cola`, "trabajando");
+  else if (evento === "vacía") pastilla("chat", desconectar ? "escuchando" : "al día", "listo");
+};
+
+let cola = new Cola(
+  sintetizarMensaje,
+  (o) => {
+    visor.mostrar(o.onda, o.sampleRate);
+    return visor.reproducir(reproducir);
+  },
+  pintarStats,
+);
+let desconectar: (() => void) | null = null;
+
+/** What the demo does with one chat line, wherever it came from. */
+function recibir(usuario: string, textoBruto: string): void {
+  const maxChars = Number(($("maxChars") as HTMLInputElement).value) || 200;
+  const texto = normalizarChat(textoBruto, maxChars);
+  if (!texto) {
+    anotar(usuario, textoBruto, "nada que leer");
+    return;
+  }
+  const politica = ($("politica") as HTMLSelectElement).value;
+  const voz =
+    politica === "elegida" ? vozDestino : politica === "usuario" ? vozParaUsuario(usuario) : null;
+  const nombre = ($("leerNombre") as HTMLInputElement).checked ? `${nombreLegible(usuario)}: ` : "";
+  const aceptado = cola.encolar({ texto: nombre + texto, usuario, voz });
+  if (aceptado)
+    anotar(usuario, texto, texto === textoBruto ? "" : `de: ${textoBruto.slice(0, 60)}`);
+}
+
+$("enviar").addEventListener("click", () => {
+  const entrada = $("mensaje") as HTMLInputElement;
+  if (entrada.value.trim()) recibir("tú", entrada.value);
+  entrada.value = "";
+});
+$("mensaje").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("enviar").click();
+});
+$("vaciarCola").addEventListener("click", () => cola.vaciar());
+$("maxEdad").addEventListener("change", () => {
+  cola.parar();
+  cola = new Cola(
+    sintetizarMensaje,
+    (o) => {
+      visor.mostrar(o.onda, o.sampleRate);
+      return visor.reproducir(reproducir);
+    },
+    pintarStats,
+    { maxEdadMs: Number(($("maxEdad") as HTMLInputElement).value) * 1000 },
+  );
+});
+
+const SIMULACION: Array<[string, string]> = [
+  ["Pepe_Gamer", "holaaaa q tal todos!!!!"],
+  // the same line twice in a row: the queue must refuse the second while the first waits
+  ["Pepe_Gamer", "holaaaa q tal todos!!!!"],
+  ["xXDark_LordXx", "JAJAJAJAJA no me lo creo"],
+  ["Luci", "KEKW KEKW KEKW"],
+  ["mod_ana", "mira esto https://clips.twitch.tv/abc123 brutal"],
+  ["Raúl99", "GG WP EZ"],
+  ["Pepe_Gamer", "xq no juegas al lol?"],
+  ["nerea", "tb me pasa a mi, ntp"],
+  ["Carlos", "pls sube el volumen porfa"],
+  ["Luci", "***spoiler*** el final es una locura"],
+  ["mod_ana", "el murciélago vuela de nooooche"],
+  ["Raúl99", "¿¿¿qué???!!! jajaja"],
+  ["nerea", "cómo se llama la canción de fondo"],
+  ["Carlos", "CÁLLATE YA 😂😂😂"],
+  ["Pepe_Gamer", "siiiiii vamosssss"],
+  ["Luci", "Kappa Kappa PogChamp"],
+  ["mod_ana", "llego tarde, perdón, tenía que ir al médico"],
+  ["Raúl99", "salu2 grax por el stream tqm"],
+  ["nerea", "3,5 euros a las 10:30 en el 2º piso"],
+  ["Carlos", "no no no no no NO"],
+];
+$("simular").addEventListener("click", () => {
+  let i = 0;
+  const paso = () => {
+    if (i >= SIMULACION.length) return;
+    const [usuario, texto] = SIMULACION[i++];
+    recibir(usuario, texto);
+    setTimeout(paso, 150);
+  };
+  paso();
+});
+
+$("conectar").addEventListener("click", () => {
+  if (desconectar) {
+    desconectar();
+    desconectar = null;
+    return;
+  }
+  const canal = ($("canal") as HTMLInputElement).value.trim();
+  if (!canal) {
+    log("chat: escribe el nombre del canal");
+    return;
+  }
+  desconectar = conectarTwitch(
+    canal,
+    (m) => recibir(m.usuario, m.texto),
+    (estado, detalle) => {
+      log(`twitch: ${estado}${detalle ? ` (${detalle})` : ""}`);
+      $("conectar").textContent =
+        estado === "cerrado" || estado === "error" ? "conectar" : "desconectar";
+      if (estado === "conectado") pastilla("chat", "escuchando", "listo");
+      else if (estado === "conectando") pastilla("chat", "conectando…", "trabajando");
+      else pastilla("chat", estado, estado === "error" ? "error" : "");
+      if (estado === "cerrado" || estado === "error") desconectar = null;
+    },
+  );
+});
+
+// For the e2e test and for anyone wiring their own source: push a line in.
+(window as unknown as { __ttspro_chat: unknown }).__ttspro_chat = {
+  recibir,
+  estadisticas: () => cola.estadisticas,
+};

@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { nombreLegible, normalizarChat } from "./chat.ts";
 import { normalizar } from "./normalizar.ts";
 import { fonemasDeFrase, ids } from "./tokens.ts";
 import { trocear } from "./trocear.ts";
@@ -22,6 +23,16 @@ for await (const linea of lineas) {
   const tab = linea.indexOf("\t");
   const idioma = linea.slice(0, tab);
   const frase = linea.slice(tab + 1);
+  // `chat<TAB>mensaje`: only the chat stage, which sits BEFORE normalizar.
+  if (idioma === "chat") {
+    process.stdout.write(`${JSON.stringify({ idioma, frase, chat: normalizarChat(frase) })}\n`);
+    continue;
+  }
+  // `nombre<TAB>usuario`: how a user name is said.
+  if (idioma === "nombre") {
+    process.stdout.write(`${JSON.stringify({ idioma, frase, chat: nombreLegible(frase) })}\n`);
+    continue;
+  }
   const normalizado = normalizar(frase);
   const trozos = trocear(normalizado);
   const fonemas = await fonemasDeFrase(frase, idioma);

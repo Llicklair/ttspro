@@ -15,6 +15,11 @@ export interface Simbolos {
   pad: number;
   tabla: string[];
   blank_entre_tokens?: boolean;
+  blank_al_inicio?: boolean;
+  bos?: number | null;
+  eos?: number | null;
+  /** symbol -> replacement ("" drops it); declared, never silent. */
+  equivalencias?: Record<string, string>;
 }
 
 export async function fonemasDeFrase(texto: string, idioma: string): Promise<string> {
@@ -34,22 +39,39 @@ export async function fonemasDeFrase(texto: string, idioma: string): Promise<str
   return elementos.join(" ");
 }
 
+/**
+ * One id per character, wrapped as the model expects (mirrored in tokens.py).
+ * The contract decides the shape: `blank_entre_tokens` puts a pad next to every
+ * symbol, `blank_al_inicio` says before (coqui) or after (Piper), and `bos`/`eos`
+ * wrap the sentence. Getting this wrong makes audio that is almost right.
+ */
 export function ids(fonemas: string, simbolos: Simbolos): number[] {
-  const tabla = new Map(simbolos.tabla.map((s, i) => [s, i] as const));
-  const desconocidos = [...new Set([...fonemas].filter((c) => !tabla.has(c)))].sort();
+  const tabla = new Map(simbolos.tabla.flatMap((s, i) => (s === "" ? [] : [[s, i] as const])));
+  const equivalencias = simbolos.equivalencias ?? {};
+  const texto = Object.keys(equivalencias).length
+    ? [...fonemas].map((c) => equivalencias[c] ?? c).join("")
+    : fonemas;
+  const desconocidos = [...new Set([...texto].filter((c) => !tabla.has(c)))].sort();
   if (desconocidos.length > 0) {
     throw new Error(
-      `símbolos fuera de models/contrato.json: ${JSON.stringify(desconocidos)} en ${JSON.stringify(fonemas)}. Añádelos a la tabla en los dos lados, no los ignores.`,
+      `símbolos fuera de models/contrato.json: ${JSON.stringify(desconocidos)} en ${JSON.stringify(texto)}. Añádelos a la tabla en los dos lados, no los ignores.`,
     );
   }
-  const secuencia = [...fonemas].map((c) => tabla.get(c) as number);
-  if (!simbolos.blank_entre_tokens) return secuencia;
-  // VITS add_blank: pad id 0 before, between and after every symbol.
-  const conBlank: number[] = new Array(2 * secuencia.length + 1).fill(0);
-  secuencia.forEach((id, i) => {
-    conBlank[2 * i + 1] = id;
-  });
-  return conBlank;
+  const secuencia = [...texto].map((c) => tabla.get(c) as number);
+  const bos = simbolos.bos ?? null;
+  const eos = simbolos.eos ?? null;
+  if (!simbolos.blank_entre_tokens) {
+    return [...(bos !== null ? [bos] : []), ...secuencia, ...(eos !== null ? [eos] : [])];
+  }
+  const alInicio = simbolos.blank_al_inicio ?? true;
+  const salida: number[] = bos !== null ? [bos] : [];
+  for (const x of secuencia) {
+    if (alInicio) salida.push(simbolos.pad, x);
+    else salida.push(x, simbolos.pad);
+  }
+  if (alInicio) salida.push(simbolos.pad);
+  if (eos !== null) salida.push(eos);
+  return salida;
 }
 
 export async function tokenizar(

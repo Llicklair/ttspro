@@ -12,7 +12,7 @@ import { expect, test } from "@playwright/test";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const REFERENCIA = process.env.TTSPRO_REFERENCIA ?? resolve(AQUI, "referencia.wav");
-const FRASE = "The quick brown fox jumps over the lazy dog today.";
+const FRASE = "Hola, hoy hace un día muy bueno para salir a pasear un rato.";
 // "" = fp32 (what wasm should run: faster than fp16 there and no NaN)
 const PRECISION = process.env.TTSPRO_PRECISION ?? "";
 
@@ -43,7 +43,7 @@ test("carga, elige voz, sintetiza y convierte en wasm", async ({ page }) => {
   await expect(page.locator("#infoVoz")).toContainText("voz clonada", { timeout: 120_000 });
 
   await page.fill("#texto", FRASE);
-  await page.selectOption("#idioma", "en");
+  await page.selectOption("#idioma", "es");
   const t0 = Date.now();
   await page.click("#sintetizar");
   await expect(page.locator("#medidas")).toContainText("RTF", { timeout: 180_000 });

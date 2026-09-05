@@ -30,6 +30,11 @@ class Sintetizador(nn.Module):
     def __init__(self, cfg: ConfigSintetizador) -> None:
         super().__init__()
         self.cfg = cfg
+        # A single-voice base TTS (a ported Piper voice, ADR 0008) has no speaker
+        # conditioning and no language embedding: the graph must not pretend to
+        # take inputs it ignores.
+        self.usa_locutor = cfg.gin_channels > 0
+        self.usa_idioma = cfg.n_langs > 1
         self.enc_p = TextEncoder(
             cfg.n_symbols,
             cfg.n_langs,
@@ -50,6 +55,7 @@ class Sintetizador(nn.Module):
             cfg.upsample_initial_channel,
             cfg.upsample_kernel_sizes,
             gin_channels=cfg.gin_channels,
+            resblock=cfg.resblock,
         )
         self.enc_q = PosteriorEncoder(
             cfg.spec_channels,
@@ -89,7 +95,7 @@ class Sintetizador(nn.Module):
         idioma: torch.Tensor,
     ):
         x, m_p, logs_p, x_mask = self.enc_p(tokens, tokens_len, idioma)
-        g = embedding.unsqueeze(-1)
+        g = embedding.unsqueeze(-1) if self.usa_locutor else None
         z, m_q, logs_q, y_mask = self.enc_q(spec, spec_len, g=g)
         z_p = self.flow(z, y_mask, g=g)
 
@@ -135,7 +141,7 @@ class Sintetizador(nn.Module):
         noise_scale_w = escala_ruido[1]
         length_scale = escala_ruido[2]
         x, m_p, logs_p, x_mask = self.enc_p(tokens, longitud_tokens, idioma)
-        g = embedding.unsqueeze(-1)
+        g = embedding.unsqueeze(-1) if self.usa_locutor else None
         logw = self.dp(
             x, x_mask, g=g, reverse=True, noise_scale=noise_scale_w, noise=ruido_duracion
         )
@@ -174,4 +180,23 @@ class SintetizadorExport(nn.Module):
     ):
         return self.modelo.inferir(
             tokens, longitud_tokens, embedding, idioma, ruido_flow, ruido_duracion, escala_ruido
+        )
+
+
+class SintetizadorExportVozFija(nn.Module):
+    """Same, minus the inputs a fixed-voice monolingual model does not read.
+
+    `torch.onnx.export` maps `input_names` POSITIONALLY onto the inputs it keeps,
+    so exporting with the full signature and letting it prune renames the rest
+    and lands the dynamic axes on the wrong tensors (measured 2026-09-05: "Dynamic
+    shape axis should be no more than the shape dimension for frames").
+    """
+
+    def __init__(self, modelo: Sintetizador) -> None:
+        super().__init__()
+        self.modelo = modelo
+
+    def forward(self, tokens, longitud_tokens, ruido_flow, ruido_duracion, escala_ruido):
+        return self.modelo.inferir(
+            tokens, longitud_tokens, None, None, ruido_flow, ruido_duracion, escala_ruido
         )

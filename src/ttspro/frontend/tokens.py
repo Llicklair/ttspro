@@ -22,9 +22,14 @@ CONTRATO = RAIZ / "models" / "contrato.json"
 
 
 @lru_cache(maxsize=1)
+def simbolos() -> dict:
+    return json.loads(CONTRATO.read_text(encoding="utf-8"))["simbolos"]
+
+
+@lru_cache(maxsize=1)
 def tabla() -> dict[str, int]:
-    simbolos = json.loads(CONTRATO.read_text(encoding="utf-8"))["simbolos"]
-    return {s: i for i, s in enumerate(simbolos["tabla"])}
+    """symbol -> id. Empty slots (Piper leaves gaps in its map) are skipped."""
+    return {s: i for i, s in enumerate(simbolos()["tabla"]) if s != ""}
 
 
 def fonemas_de_frase(texto: str, idioma: str) -> str:
@@ -43,17 +48,21 @@ def fonemas_de_frase(texto: str, idioma: str) -> str:
     return " ".join(elementos)
 
 
-@lru_cache(maxsize=1)
-def blank_entre_tokens() -> bool:
-    return bool(
-        json.loads(CONTRATO.read_text(encoding="utf-8"))["simbolos"].get("blank_entre_tokens")
-    )
-
-
 def ids(fonemas: str) -> list[int]:
-    """One id per character; with `blank_entre_tokens` (VITS add_blank) the pad id 0
-    goes before, between and after them: [0, a, 0, b, ..., 0]."""
+    """One id per character, wrapped as the model expects (mirrored in tokens.ts).
+
+    The contract decides the shape of the sequence, because it is part of what the
+    weights were trained on and getting it wrong makes audio that is almost right:
+
+    - `blank_entre_tokens` (VITS add_blank): a pad next to every symbol;
+    - `blank_al_inicio`: pad BEFORE each symbol (coqui) or AFTER it (Piper);
+    - `bos`/`eos`: wrap the sentence (Piper's `^` and `$`).
+    """
     t = tabla()
+    cfg = simbolos()
+    equivalencias = cfg.get("equivalencias") or {}
+    if equivalencias:
+        fonemas = "".join(equivalencias.get(c, c) for c in fonemas)
     desconocidos = sorted({c for c in fonemas if c not in t})
     if desconocidos:
         raise ValueError(
@@ -61,11 +70,22 @@ def ids(fonemas: str) -> list[int]:
             "Añádelos a la tabla en los dos lados, no los ignores."
         )
     secuencia = [t[c] for c in fonemas]
-    if not blank_entre_tokens():
-        return secuencia
-    con_blank = [0] * (2 * len(secuencia) + 1)
-    con_blank[1::2] = secuencia
-    return con_blank
+    if not cfg.get("blank_entre_tokens"):
+        return (
+            ([cfg["bos"]] if cfg.get("bos") is not None else [])
+            + secuencia
+            + ([cfg["eos"]] if cfg.get("eos") is not None else [])
+        )
+    pad = cfg["pad"]
+    al_inicio = cfg.get("blank_al_inicio", True)
+    salida = [cfg["bos"]] if cfg.get("bos") is not None else []
+    for x in secuencia:
+        salida += [pad, x] if al_inicio else [x, pad]
+    if al_inicio:
+        salida.append(pad)
+    if cfg.get("eos") is not None:
+        salida.append(cfg["eos"])
+    return salida
 
 
 def tokenizar(texto: str, idioma: str) -> tuple[str, list[int]]:

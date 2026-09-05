@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch.nn.utils.parametrizations import weight_norm
 
-from ttspro.model.comun import LRELU_SLOPE, ResBlock1, init_weights
+from ttspro.model.comun import LRELU_SLOPE, ResBlock1, ResBlock2, init_weights
 
 
 class Generator(nn.Module):
@@ -20,6 +20,7 @@ class Generator(nn.Module):
         upsample_initial_channel: int,
         upsample_kernel_sizes: list[int],
         gin_channels: int = 0,
+        resblock: str = "1",
     ) -> None:
         super().__init__()
         self.num_kernels = len(resblock_kernel_sizes)
@@ -42,8 +43,9 @@ class Generator(nn.Module):
         ch = upsample_initial_channel
         for i in range(len(self.ups)):
             ch = upsample_initial_channel // (2 ** (i + 1))
+            bloque = ResBlock1 if resblock == "1" else ResBlock2
             for k, d in zip(resblock_kernel_sizes, resblock_dilation_sizes, strict=True):
-                self.resblocks.append(ResBlock1(ch, k, tuple(d)))
+                self.resblocks.append(bloque(ch, k, tuple(d)))
         self.conv_post = nn.Conv1d(ch, 1, 7, 1, padding=3, bias=False)
         self.ups.apply(init_weights)
         if gin_channels:

@@ -1,22 +1,22 @@
 {
- "frase": "The quick brown fox jumps over the lazy dog today.",
+ "frase": "Hola, hoy hace un día muy bueno para salir a pasear un rato.",
  "precision": "fp32",
- "palabras": 10,
- "ms_total_sintesis": 7031,
- "ms_modelo": 3825.410000026226,
- "ms_conversor": 2968.4300000071526,
- "ms_frontend": 167.94999998807907,
- "segundos_audio": 4.144761904761904,
- "rtf": 1.6391387867727594,
+ "palabras": 13,
+ "ms_total_sintesis": 2700,
+ "ms_modelo": 401.33000004291534,
+ "ms_conversor": 2048.3650000095367,
+ "ms_frontend": 185.125,
+ "segundos_audio": 2.8328344671201813,
+ "rtf": 0.8647504923020711,
  "proveedor": "wasm",
- "tokens": 123,
- "estado": "listo · tts wasm · conversor wasm · voz wasm · 260.8 MB · 4 hilo(s) wasm · aislado=true",
+ "tokens": 146,
+ "estado": "listo · tts wasm · conversor wasm · voz wasm · 203.1 MB · 4 hilo(s) wasm · aislado=true",
  "descargas_MB": {
-  "/models/tts.onnx": 120.99,
+  "/models/tts.onnx": 63.31,
   "/models/conversor.onnx": 132.31,
   "/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm": 27.8,
   "/models/voz.onnx": 7.46,
   "/espeak/espeak-ng.wasm": 18.49
  },
- "mb_descarga_total": 307
+ "mb_descarga_total": 249.4
 }

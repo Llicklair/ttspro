@@ -25,13 +25,29 @@ import torch
 
 from ttspro.export.ops_ort_web import ops_fuera_de_webgpu
 from ttspro.model.config import ConfigSintetizador
-from ttspro.model.sintetizador import Sintetizador, SintetizadorExport
+from ttspro.model.sintetizador import (
+    Sintetizador,
+    SintetizadorExport,
+    SintetizadorExportVozFija,
+)
 
 RAIZ = Path(__file__).resolve().parents[3]
 MODELOS = RAIZ / "models"
 CONTRATO = json.loads((MODELOS / "contrato.json").read_text(encoding="utf-8"))
 FIRMA = CONTRATO["grafos"]["tts"]
 NOMBRES_IN = [e["nombre"] for e in FIRMA["entradas"]]
+# The full signature `inferir` has. The contract may declare FEWER, because the
+# exporter prunes what a fixed-voice model ignores (ADR 0008); this list is what
+# `entradas_ejemplo` produces, in order, and never changes.
+ENTRADAS_COMPLETAS = [
+    "tokens",
+    "longitud_tokens",
+    "embedding",
+    "idioma",
+    "ruido_flow",
+    "ruido_duracion",
+    "escala_ruido",
+]
 NOMBRES_OUT = [s["nombre"] for s in FIRMA["salidas"]]
 
 
@@ -52,17 +68,28 @@ def cargar(checkpoint: Path | None, cfg: ConfigSintetizador) -> Sintetizador:
             for k, v in estado["cfg"].items():
                 setattr(cfg, k, v)
         modelo = Sintetizador(cfg)
-        modelo.load_state_dict(estado["modelo"] if "modelo" in estado else estado)
+        pesos = estado["modelo"] if "modelo" in estado else estado
+        # A ported voice (Piper, ADR 0008) is saved with weight norm already folded,
+        # so the fresh model has to be folded too before the keys line up.
+        if not any("parametrizations" in k for k in pesos):
+            from ttspro.model.comun import remove_weight_norm
+
+            remove_weight_norm(modelo)
+        modelo.load_state_dict(pesos, strict=False)
         return modelo
     return Sintetizador(cfg)
 
 
 def entradas_ejemplo(cfg: ConfigSintetizador, longitud: int = 60, frames: int = 400):
+    """The graph keeps the contract signature even for a single-voice model: the
+    `embedding` and `idioma` inputs are then accepted and IGNORED (ADR 0008), so
+    the browser code and the contract stay the same across base voices."""
     torch.manual_seed(0)
+    dim = cfg.gin_channels or CONTRATO["embedding_locutor"]["dim"]
     return (
         torch.randint(1, cfg.n_symbols, (1, longitud)),
         torch.tensor([longitud]),
-        torch.nn.functional.normalize(torch.randn(1, cfg.gin_channels), dim=1),
+        torch.nn.functional.normalize(torch.randn(1, dim), dim=1),
         torch.tensor([0]),
         torch.randn(1, cfg.inter_channels, frames),
         torch.randn(1, 2, longitud),
@@ -76,13 +103,18 @@ def exportar(modelo: Sintetizador, ruta: Path, cfg: ConfigSintetizador) -> onnx.
     # born in train mode would drag the model back to train (dropout 0.5 in the
     # duration predictor) for any reference computed afterwards. Measured
     # 2026-09-04: 169 vs 186 frames on the same inputs.
-    envoltorio = SintetizadorExport(modelo).eval()
+    voz_fija = not modelo.usa_locutor and not modelo.usa_idioma
+    envoltorio = (SintetizadorExportVozFija if voz_fija else SintetizadorExport)(modelo).eval()
+    ejemplo = entradas_ejemplo(cfg)
+    nombres = [n for n in ENTRADAS_COMPLETAS if not (voz_fija and n in ("embedding", "idioma"))]
+    if voz_fija:
+        ejemplo = tuple(e for n, e in zip(ENTRADAS_COMPLETAS, ejemplo, strict=True) if n in nombres)
     torch.onnx.export(
         envoltorio,
-        entradas_ejemplo(cfg),
+        ejemplo,
         str(ruta),
         opset_version=FIRMA["opset"],
-        input_names=NOMBRES_IN,
+        input_names=nombres,
         output_names=NOMBRES_OUT,
         dynamic_axes={
             "tokens": {1: "longitud"},
@@ -110,11 +142,13 @@ def parametros_por_bloque(modelo: Sintetizador) -> dict[str, float]:
     }
 
 
-def medir(ruta: Path, entradas, esperado: np.ndarray | None) -> dict:
+def medir(
+    ruta: Path, entradas, esperado: np.ndarray | None, nombres: list[str] | None = None
+) -> dict:
     import onnxruntime as ort
 
     sesion = ort.InferenceSession(str(ruta), providers=["CPUExecutionProvider"])
-    feed = {n: e.numpy() for n, e in zip(NOMBRES_IN, entradas, strict=True)}
+    feed = {n: e.numpy() for n, e in zip(nombres or NOMBRES_IN, entradas, strict=True)}
     sesion.run(None, feed)
     tiempos = []
     for _ in range(5):
@@ -149,6 +183,27 @@ def main() -> None:
     )
     args = ap.parse_args()
 
+    # A ported voice carries its own symbol table (Piper has its own map and wraps
+    # the sentence in ^ … $). The contract must describe what is IN models/, so the
+    # export syncs it — and says so, because it changes what the frontend emits.
+    if args.checkpoint is not None:
+        estado_previo = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+        if "simbolos" in estado_previo:
+            ruta_contrato = MODELOS / "contrato.json"
+            contrato = json.loads(ruta_contrato.read_text(encoding="utf-8"))
+            cambios = {}
+            if contrato["simbolos"] != estado_previo["simbolos"]:
+                cambios["simbolos"] = estado_previo["simbolos"]
+            if "idiomas" in estado_previo and contrato["idiomas"] != estado_previo["idiomas"]:
+                cambios["idiomas"] = estado_previo["idiomas"]
+            if cambios:
+                contrato.update(cambios)
+                ruta_contrato.write_text(
+                    json.dumps(contrato, ensure_ascii=False, indent=1), encoding="utf-8"
+                )
+                print(f"contrato: {list(cambios)} actualizado desde {args.checkpoint}")
+        del estado_previo
+
     cfg = config_por_defecto()
     if args.upsample_initial:
         cfg.upsample_initial_channel = args.upsample_initial
@@ -158,10 +213,29 @@ def main() -> None:
 
     args.salida.parent.mkdir(parents=True, exist_ok=True)
     grafo = exportar(modelo, args.salida, cfg)
-    entradas = entradas_ejemplo(cfg)
+    # torch.onnx.export PRUNES inputs the model ignores, so a single-voice base TTS
+    # has no `embedding` and a monolingual one has no `idioma`. The contract has to
+    # say what the graph really takes, and the browser builds its feed from it.
+    reales = {i.name for i in grafo.graph.input}
+    ruta_contrato = MODELOS / "contrato.json"
+    contrato = json.loads(ruta_contrato.read_text(encoding="utf-8"))
+    catalogo = {e["nombre"]: e for e in CONTRATO["grafos"]["tts"]["entradas"]}
+    declaradas = [catalogo[n] for n in ENTRADAS_COMPLETAS if n in reales and n in catalogo]
+    if [e["nombre"] for e in contrato["grafos"]["tts"]["entradas"]] != [
+        e["nombre"] for e in declaradas
+    ]:
+        contrato["grafos"]["tts"]["entradas"] = declaradas
+        ruta_contrato.write_text(
+            json.dumps(contrato, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+        print(f"contrato: firma de tts actualizada a {[e['nombre'] for e in declaradas]}")
+    nombres_in = [e["nombre"] for e in declaradas]
+    entradas = tuple(
+        e for n, e in zip(ENTRADAS_COMPLETAS, entradas_ejemplo(cfg), strict=True) if n in reales
+    )
     modelo.eval()
     with torch.no_grad():
-        esperado = modelo.inferir(*entradas).numpy()
+        esperado = modelo.inferir(*entradas_ejemplo(cfg)).numpy()
 
     from onnxruntime.transformers.float16 import convert_float_to_float16
 
@@ -188,11 +262,12 @@ def main() -> None:
         "config": dataclasses.asdict(cfg),
         "parametros_M": bloques,
         "parametros_exportados_M": round(exportables, 2),
+        "entradas": nombres_in,
         "ops": sorted({n.op_type for n in grafo.graph.node}),
         "ops_fuera_de_webgpu": ops_fuera_de_webgpu(grafo),
         "ort": {
-            "fp32": medir(args.salida, entradas, esperado),
-            "fp16": medir(salida16, entradas, esperado),
+            "fp32": medir(args.salida, entradas, esperado, nombres_in),
+            "fp16": medir(salida16, entradas, esperado, nombres_in),
         },
     }
     # The done criterion (tests/terminado) reads this to know which checkpoint

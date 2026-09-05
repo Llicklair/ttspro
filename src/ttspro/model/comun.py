@@ -238,6 +238,45 @@ class ResBlock1(nn.Module):
         return x
 
 
+class ResBlock2(nn.Module):
+    """HiFi-GAN residual block (type 2): two dilated convolutions, no second stack.
+
+    Piper's `medium` voices use this one, and it is a third of the parameters of
+    ResBlock1 for the same kernel sizes.
+    """
+
+    def __init__(
+        self, channels: int, kernel_size: int = 3, dilation: tuple[int, ...] = (1, 3)
+    ) -> None:
+        super().__init__()
+        self.convs = nn.ModuleList(
+            [
+                weight_norm(
+                    nn.Conv1d(
+                        channels,
+                        channels,
+                        kernel_size,
+                        1,
+                        dilation=d,
+                        padding=get_padding(kernel_size, d),
+                    )
+                )
+                for d in dilation
+            ]
+        )
+        self.convs.apply(init_weights)
+
+    def forward(self, x: torch.Tensor, x_mask: torch.Tensor | None = None) -> torch.Tensor:
+        for c in self.convs:
+            xt = F.leaky_relu(x, LRELU_SLOPE)
+            if x_mask is not None:
+                xt = xt * x_mask
+            x = c(xt) + x
+        if x_mask is not None:
+            x = x * x_mask
+        return x
+
+
 def kl_divergence(m_p, logs_p, m_q, logs_q):
     """KL(P||Q) between diagonal Gaussians, elementwise."""
     kl = (logs_q - logs_p) - 0.5

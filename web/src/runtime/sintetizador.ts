@@ -32,7 +32,7 @@ export async function sintetizar(
   contrato: Contrato,
   texto: string,
   idioma: string,
-  embedding: Float32Array,
+  embedding: Float32Array | null,
   opciones: Opciones = {},
 ): Promise<Resultado> {
   const grafo = contrato.grafos.tts;
@@ -49,27 +49,35 @@ export async function sintetizar(
   const inter = grafo.entradas.find((e) => e.nombre === "ruido_flow")?.forma[1] as number;
   const frames = L * 12; // any length works (the graph tiles), this one avoids tiling
   const semilla = opciones.semilla ?? 0;
-  const feeds: Record<string, ort.Tensor> = {
-    tokens: new ort.Tensor("int64", BigInt64Array.from(secuencia.map((x) => BigInt(x))), [1, L]),
-    longitud_tokens: new ort.Tensor("int64", BigInt64Array.from([BigInt(L)]), [1]),
-    embedding: new ort.Tensor("float32", embedding, [1, embedding.length]),
-    idioma: new ort.Tensor("int64", BigInt64Array.from([BigInt(indiceIdioma)]), [1]),
-    ruido_flow: new ort.Tensor("float32", ruidoNormal(inter * frames, semilla + 1), [
-      1,
-      inter,
-      frames,
-    ]),
-    ruido_duracion: new ort.Tensor("float32", ruidoNormal(2 * L, semilla + 2), [1, 2, L]),
-    escala_ruido: new ort.Tensor(
-      "float32",
-      Float32Array.from([
-        opciones.noise_scale ?? 0.667,
-        opciones.noise_scale_w ?? 0.8,
-        opciones.length_scale ?? 1.0,
-      ]),
-      [3],
-    ),
+  // A single-voice base TTS (ADR 0008) has no `embedding` and a monolingual one no
+  // `idioma`: the contract says which inputs the graph really has, and only those
+  // are sent — ORT rejects a feed with names the graph does not declare.
+  const posibles: Record<string, () => ort.Tensor> = {
+    tokens: () =>
+      new ort.Tensor("int64", BigInt64Array.from(secuencia.map((x) => BigInt(x))), [1, L]),
+    longitud_tokens: () => new ort.Tensor("int64", BigInt64Array.from([BigInt(L)]), [1]),
+    embedding: () => {
+      if (!embedding) throw new Error("el grafo pide `embedding` y no se le ha dado ninguno");
+      return new ort.Tensor("float32", embedding, [1, embedding.length]);
+    },
+    idioma: () => new ort.Tensor("int64", BigInt64Array.from([BigInt(indiceIdioma)]), [1]),
+    ruido_flow: () =>
+      new ort.Tensor("float32", ruidoNormal(inter * frames, semilla + 1), [1, inter, frames]),
+    ruido_duracion: () => new ort.Tensor("float32", ruidoNormal(2 * L, semilla + 2), [1, 2, L]),
+    escala_ruido: () =>
+      new ort.Tensor(
+        "float32",
+        Float32Array.from([
+          opciones.noise_scale ?? 0.667,
+          opciones.noise_scale_w ?? 0.8,
+          opciones.length_scale ?? 1.0,
+        ]),
+        [3],
+      ),
   };
+  const feeds: Record<string, ort.Tensor> = {};
+  for (const entrada of grafo.entradas) feeds[entrada.nombre] = posibles[entrada.nombre]();
+
   const t1 = performance.now();
   const salida = await tts.sesion.run(feeds);
   const ms_modelo = performance.now() - t1;

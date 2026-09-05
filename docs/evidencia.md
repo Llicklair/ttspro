@@ -578,6 +578,49 @@ Las tres palancas, en orden de rendimiento por esfuerzo:
    en wasm; el conversor debería escalar igual.
 3. **int8 en el conversor** si con lo anterior sigue sin caber.
 
+## 2026-09-05 · La voz base pasa a ser Piper español — WER DE 0,32 A 0,09 Y 29 MB MENOS
+
+**Montaje.** `es_ES-davefx-medium` (MIT, 22 050 Hz, espeak `es`) portado desde su ONNX a nuestro
+`Sintetizador` (`ttspro.train.piper`), exportado con nuestro exportador y medido con Whisper-small
+sobre cinco frases españolas.
+
+| | Nuestro modelo (2 000 pasos) | **Piper davefx portado** |
+|---|---|---|
+| WER medio / mediana | 0,42 / 0,32 | **0,17 / 0,091** |
+| Parámetros exportados | 30,9 M | **16,4 M** |
+| Tamaño fp32 / fp16 | 121 / 61,2 MB | **63,3 / 32,3 MB** |
+| Paridad torch ↔ ORT | 1,2·10⁻³ | 3,5·10⁻⁵ |
+| RTF en CPU | 0,22 | **0,045** |
+| Ops fuera de WebGPU | 0 | **0** |
+
+De las cinco frases, las dos con peor WER son casos donde **Whisper escribe cifras** donde el
+texto tenía palabras ("6 entradas" por "seis entradas", "3522" por "tres mil quinientos
+veintidós"): el audio es correcto. Sin esas dos, el WER es 0,057. La medición se deja como está
+porque los dos modelos se midieron igual y la comparación se sostiene; normalizar números en
+`normalizar_para_wer` queda pendiente.
+
+**El port, tensor a tensor.** 349 cargados; lo que falta es solo entrenamiento (`enc_q`,
+`dp.post_*`, y el `ConvFlow` que VITS descarta en inferencia). Dos sorpresas que las formas
+delataron y las suposiciones habrían escondido:
+
+- el decoder usa **ResBlock2** (dos convoluciones dilatadas por bloque, kernels 3/5/7 con
+  dilataciones [1,2] [2,6] [3,12]) y **tres** upsamples de 256 canales, no cuatro de 512;
+- `emb_rel_k` es (1, 9, 96) porque las cabezas comparten la tabla: deducir las cabezas del primer
+  eje daba 1 donde hay 2, y con eso los doce tensores de atención no cargaban.
+
+Piper además renombra en el export: el embedding de símbolos pasa a llamarse `sid` y las
+convoluciones con weight-norm quedan como `onnx::Conv_NNNN`, recuperables porque el **nodo** que
+las consume conserva la ruta del módulo.
+
+**En el navegador** (wasm, fp32, frase de 13 palabras): TTS **401 ms** (antes 3 825), conversor
+2 048 ms, total 2,7 s, RTF 0,86 (antes 1,64). Descarga fp32 249,4 MB (antes 307); en fp16
+serían **148,8 MB**, aún por encima de los 110 del presupuesto, pero ahora quien pesa es el
+**conversor** (66,5 MB), no el TTS.
+
+**Consecuencia.** [ADR 0008](adr/0008-la-voz-base-es-una-voz-de-piper.md). El demo queda en
+español, que es lo que la voz base sabe. La siguiente palanca de peso ya no es el TTS: es
+cuantizar el conversor o recortar espeak.
+
 ---
 
 ## Mediciones pendientes que deciden algo

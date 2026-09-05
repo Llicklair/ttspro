@@ -52,6 +52,8 @@ class ConfigSintetizador:
     resblock_dilation_sizes: list[list[int]] = field(
         default_factory=lambda: [[1, 3, 5], [1, 3, 5], [1, 3, 5]]
     )
+    # "1" = HiFi-GAN ResBlock1 (VITS/coqui), "2" = ResBlock2 (Piper medium)
+    resblock: str = "1"
     # stochastic duration predictor
     sdp_filter_channels: int = 192
     sdp_kernel: int = 3

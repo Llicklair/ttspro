@@ -159,6 +159,7 @@ def main() -> None:
         hechos = MODELOS / "tts.export.json"
         checkpoint = Path(json.loads(hechos.read_text(encoding="utf-8"))["checkpoint"])
     cfg = config_por_defecto()
+    nombre_voz = torch.load(checkpoint, map_location="cpu", weights_only=False).get("voz")
     tts = cargar_tts(checkpoint, cfg).preparar_export()
     cfg = tts.cfg
     idiomas = {"es": 0, "en": 1}
@@ -185,18 +186,18 @@ def main() -> None:
             )
         ondas_base.append(onda[0])
 
-    salida = {
-        "espacio": "openvoice-v2",
-        "dim": len(voces[0]["voz"]),
-        "base": {
-            "locutor": base_clave[1],
-            "idioma": base_clave[0],
-            "checkpoint": str(checkpoint),
-            "embedding_tts": emb_base.reshape(-1).tolist(),
-            "voz": vector_voz(ondas_base).tolist(),
-        },
-        "voces": voces,
+    base = {
+        "locutor": nombre_voz or base_clave[1],
+        "idioma": base_clave[0],
+        "checkpoint": str(checkpoint),
+        "voz": vector_voz(ondas_base).tolist(),
     }
+    # A single-voice base TTS (a ported Piper voice, ADR 0008) takes no speaker
+    # vector, and shipping one the browser would then feed to a graph that does not
+    # declare it is exactly the kind of lie the contract exists to prevent.
+    if cfg.gin_channels > 0:
+        base["embedding_tts"] = emb_base.reshape(-1).tolist()
+    salida = {"espacio": "openvoice-v2", "dim": len(voces[0]["voz"]), "base": base, "voces": voces}
     args.salida.write_text(json.dumps(salida, ensure_ascii=False), encoding="utf-8")
     print(
         json.dumps(

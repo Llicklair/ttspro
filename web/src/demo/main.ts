@@ -32,7 +32,8 @@ interface Voz {
 }
 interface Voces {
   espacio: string;
-  base: { locutor: string; idioma: string; embedding_tts: number[]; voz: number[] };
+  /** `embedding_tts` only exists when the base TTS takes a speaker vector. */
+  base: { locutor: string; idioma: string; embedding_tts?: number[]; voz: number[] };
   voces: Voz[];
 }
 
@@ -122,7 +123,9 @@ $("preset").addEventListener("change", () => {
   if (!voces || i === "") return;
   const v = voces.voces[Number(i)];
   vozDestino = Float32Array.from(v.voz);
-  ($("idioma") as HTMLSelectElement).value = v.idioma;
+  // The base TTS is monolingual: a preset in another language only changes the
+  // timbre, never what language is spoken.
+  if (contrato.idiomas.includes(v.idioma)) ($("idioma") as HTMLSelectElement).value = v.idioma;
   $("infoVoz").textContent = `preset ${v.nombre}`;
   log($("infoVoz").textContent ?? "");
 });
@@ -163,7 +166,7 @@ async function hablar(conConversor: boolean): Promise<void> {
       contrato,
       ($("texto") as HTMLTextAreaElement).value,
       ($("idioma") as HTMLSelectElement).value,
-      Float32Array.from(voces.base.embedding_tts),
+      voces.base.embedding_tts ? Float32Array.from(voces.base.embedding_tts) : null,
       {
         noise_scale: Number(($("noise") as HTMLInputElement).value),
         noise_scale_w: Number(($("noise_w") as HTMLInputElement).value),

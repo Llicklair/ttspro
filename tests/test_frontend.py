@@ -34,13 +34,23 @@ def test_fonemizar_es_y_en() -> None:
     assert fonemizar("Hello", "en") == "həlˈoʊ"
 
 
-def test_tokenizar_devuelve_ids_de_la_tabla() -> None:
+def test_tokenizar_sigue_la_convencion_del_contrato() -> None:
+    """The sequence shape is data (contract), not a constant: coqui wants a pad
+    before each symbol, Piper a pad after plus ^ and $ around the sentence."""
+    from ttspro.frontend.tokens import simbolos
+
+    cfg = simbolos()
     fonemas, secuencia = tokenizar("Hola, ¿cómo estás?", "es")
     assert fonemas == "ˈola , ¿ kˈomo estˈas ?"
-    # VITS add_blank (contrato: blank_entre_tokens): 0 before, between and after
-    assert len(secuencia) == 2 * len(fonemas) + 1
-    assert all(i == 0 for i in secuencia[0::2])
-    assert all(i > 0 for i in secuencia[1::2])
+    utiles = len(fonemas) - sum(fonemas.count(c) for c in (cfg.get("equivalencias") or {}))
+    esperado = 2 * utiles + (1 if cfg.get("blank_al_inicio", True) else 0)
+    esperado += (cfg.get("bos") is not None) + (cfg.get("eos") is not None)
+    assert len(secuencia) == esperado, (len(secuencia), esperado)
+    if cfg.get("bos") is not None:
+        assert secuencia[0] == cfg["bos"] and secuencia[-1] == cfg["eos"]
+        assert all(i == cfg["pad"] for i in secuencia[2:-1:2])
+    else:
+        assert all(i == cfg["pad"] for i in secuencia[0::2])
 
 
 def test_simbolo_desconocido_falla_en_voz_alta() -> None:

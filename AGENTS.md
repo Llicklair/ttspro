@@ -26,6 +26,8 @@ uv run python -m ttspro.data.preparar --manifiesto data/manifests/X.tsv --salida
 uv run python -m ttspro.train.entrenar --cache cache/X --salida runs/X --batch 16 --fp16
 uv run python -m ttspro.export.tts --checkpoint runs/X/G_NNNN.pt  # models/tts.onnx (+ .fp16)
 uv run python -m ttspro.train.inicializar --coqui <carpeta> --salida runs/init/G_0.pt  # partir del VITS de coqui
+uv run python -m ttspro.train.piper --onnx <voz.onnx> --salida runs/piper_es/G_0.pt  # portar una voz de Piper (ADR 0008)
+uv run python -m ttspro.export.conversor                        # models/voz.onnx y conversor.onnx (ADR 0007)
 uv run python -m ttspro.train.evaluar --checkpoint runs/X/G_NNNN.pt --cache cache/*  # WER y SECS
 uv run python -m ttspro.export.voces --cache cache/openslr_es cache/vctk  # presets del demo
 ```

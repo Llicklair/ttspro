@@ -8,12 +8,15 @@ it can only remind you.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from ttspro.frontend.fonemas import VOCES
+
 RAIZ = Path(__file__).resolve().parents[3]
-IDIOMAS = json.loads((RAIZ / "models" / "contrato.json").read_text(encoding="utf-8"))["idiomas"]
+# What the FRONTEND can phonemize, not what the model in models/ happens to speak:
+# a corpus is data, and it stays valid when the base voice changes (ADR 0008).
+IDIOMAS = sorted(VOCES)
 
 
 @dataclass(frozen=True)

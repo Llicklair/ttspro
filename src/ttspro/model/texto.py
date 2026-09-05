@@ -31,8 +31,12 @@ class TextEncoder(nn.Module):
         self.out_channels = out_channels
         self.emb = nn.Embedding(n_symbols, hidden_channels)
         nn.init.normal_(self.emb.weight, 0.0, hidden_channels**-0.5)
-        self.emb_lang = nn.Embedding(n_langs, hidden_channels)
-        nn.init.normal_(self.emb_lang.weight, 0.0, hidden_channels**-0.5)
+        # Monolingual models (a ported Piper voice) have no language embedding, and
+        # a random constant added to every token is not "harmless", it is noise.
+        self.usa_idioma = n_langs > 1
+        if self.usa_idioma:
+            self.emb_lang = nn.Embedding(n_langs, hidden_channels)
+            nn.init.normal_(self.emb_lang.weight, 0.0, hidden_channels**-0.5)
         self.encoder = Encoder(
             hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout, window_size
         )
@@ -40,7 +44,9 @@ class TextEncoder(nn.Module):
 
     def forward(self, tokens: torch.Tensor, lengths: torch.Tensor, lang: torch.Tensor):
         """tokens (b, t) int64, lengths (b,), lang (b,) -> x, m, logs, mask (b, c, t)."""
-        x = self.emb(tokens) * math.sqrt(self.hidden_channels) + self.emb_lang(lang).unsqueeze(1)
+        x = self.emb(tokens) * math.sqrt(self.hidden_channels)
+        if self.usa_idioma:
+            x = x + self.emb_lang(lang).unsqueeze(1)
         x = x.transpose(1, -1)  # (b, h, t)
         x_mask = sequence_mask(lengths, tokens.size(1)).unsqueeze(1).to(x.dtype)
         x = self.encoder(x * x_mask, x_mask)

@@ -231,8 +231,33 @@ async function vozDesdeOnda(onda: Float32Array, origen: string): Promise<void> {
 }
 
 ($("fichero") as HTMLInputElement).addEventListener("change", async (ev) => {
-  const f = (ev.target as HTMLInputElement).files?.[0];
-  if (f) await vozDesdeOnda(await decodificar(await f.arrayBuffer(), srConversor()), f.name);
+  const entrada = ev.target as HTMLInputElement;
+  const f = entrada.files?.[0];
+  if (!f) return;
+  // Before this had no try/catch: a file the browser cannot decode (some .m4a,
+  // a video, a corrupt download) failed silently and the button looked dead.
+  pastilla("voz", "leyendo fichero…", "trabajando");
+  try {
+    if (!grafoVoz) throw new Error("carga los modelos antes de elegir un fichero");
+    let onda = await decodificar(await f.arrayBuffer(), srConversor());
+    // A whole podcast is not a reference: 3-10 s is what the scope asks for, and the
+    // voice extractor (a GRU) walks every sample. Keep the first 15 s.
+    const maximo = srConversor() * 15;
+    if (onda.length > maximo) {
+      log(
+        `${f.name}: ${(onda.length / srConversor()).toFixed(0)} s de audio, se usan los primeros 15`,
+      );
+      onda = onda.slice(0, maximo);
+    }
+    await vozDesdeOnda(onda, f.name);
+  } catch (err) {
+    log(`fichero ${f.name}: ${String(err)}`);
+    pastilla("voz", "no se pudo leer", "error");
+    $("infoVoz").textContent = `no se pudo leer ${f.name}: ${String(err).slice(0, 90)}`;
+  } finally {
+    // so choosing the same file again fires `change` again
+    entrada.value = "";
+  }
 });
 
 $("grabar").addEventListener("click", async () => {

@@ -31,9 +31,14 @@ browser can never disagree with the checkpoint about what a token means.
 
 ## Run it
 
-On Windows, double-click **`instalar.bat`** (or run `instalar.bat --sin-demo` to install without
-starting the demo). It installs uv, Node.js and eSpeak NG through winget if they are missing, then
-does exactly this:
+One script does the whole setup and then offers to start the demo (add `--sin-demo` to only
+install):
+
+- Windows: double-click **`instalar.bat`**. Missing tools (uv, Node.js, eSpeak NG) come from winget.
+- Linux and macOS: **`./instalar.sh`**. uv and Node.js 22 install under `~/.local` without sudo;
+  espeak-ng comes from your package manager and is only needed for the Python tests.
+
+Both do exactly this:
 
 ```bash
 uv sync --extra dev --extra export          # torch comes from the cu126 index pinned in pyproject

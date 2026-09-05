@@ -57,8 +57,10 @@ no se sirve online, así que ni el watermarking ni la política de abuso se abre
 comercial del ADR 0006 se queda como está: la restricción era nuestra, y con MIT deja de serlo para
 el código; el model card lo dice.
 
-Para que «otro usuario lo utilice» no sea un README sino un doble clic, `instalar.bat` instala uv,
-Node y eSpeak NG con winget si faltan, crea el entorno, reconstruye los pesos y prepara la demo.
+Para que «otro usuario lo utilice» no sea un README sino un doble clic, `instalar.bat` (Windows) e
+`instalar.sh` (Linux y macOS) instalan uv, Node y espeak-ng si faltan, crean el entorno, reconstruyen
+los pesos y preparan la demo. El `.sh` está probado en Git Bash sobre Windows, no en un Linux real:
+la primera ejecución en Linux que falle es un dato que va a evidencia.
 
 ### Lo que había que decidir (tal como se planteó)
 

@@ -1,0 +1,147 @@
+{
+ "es_AR-daniela-high": {
+  "clave": "es_AR-daniela-high",
+  "nombre": "daniela · Spanish (Argentina)",
+  "idioma": "es",
+  "region": "es_AR",
+  "calidad": "alta",
+  "licencia": "MIT (rhasspy/piper-voices)",
+  "parametros_M": 29.08,
+  "MB": {
+   "fp32": 114.0,
+   "fp16": 57.6
+  },
+  "ms_frase_cpu": 210,
+  "ficheros": {
+   "fp32": "es_AR-daniela-high.tts.fp16.onnx",
+   "fp16": "es_AR-daniela-high.tts.fp16.onnx"
+  },
+  "nota": "fp32 supera los 100 MB de GitHub Pages: en fp32 se sirve el fp16"
+ },
+ "es_ES-carlfm-x_low": {
+  "clave": "es_ES-carlfm-x_low",
+  "nombre": "carlfm · Spanish (Spain)",
+  "idioma": "es",
+  "region": "es_ES",
+  "calidad": "muy baja",
+  "licencia": "MIT (rhasspy/piper-voices)",
+  "parametros_M": 5.21,
+  "MB": {
+   "fp32": 20.7,
+   "fp16": 11.0
+  },
+  "ms_frase_cpu": 33,
+  "ficheros": {
+   "fp32": "es_ES-carlfm-x_low.tts.onnx",
+   "fp16": "es_ES-carlfm-x_low.tts.fp16.onnx"
+  }
+ },
+ "es_ES-davefx-medium": {
+  "clave": "es_ES-davefx-medium",
+  "nombre": "davefx · Spanish (Spain)",
+  "idioma": "es",
+  "region": "es_ES",
+  "calidad": "media",
+  "licencia": "MIT (rhasspy/piper-voices)",
+  "parametros_M": 16.41,
+  "MB": {
+   "fp32": 63.3,
+   "fp16": 32.3
+  },
+  "ms_frase_cpu": 43,
+  "ficheros": {
+   "fp32": "es_ES-davefx-medium.tts.onnx",
+   "fp16": "es_ES-davefx-medium.tts.fp16.onnx"
+  }
+ },
+ "es_ES-mls_10246-low": {
+  "clave": "es_ES-mls_10246-low",
+  "nombre": "mls_10246 · Spanish (Spain)",
+  "idioma": "es",
+  "region": "es_ES",
+  "calidad": "baja",
+  "licencia": "MIT (rhasspy/piper-voices)",
+  "parametros_M": 16.39,
+  "MB": {
+   "fp32": 63.2,
+   "fp16": 32.2
+  },
+  "ms_frase_cpu": 129,
+  "ficheros": {
+   "fp32": "es_ES-mls_10246-low.tts.onnx",
+   "fp16": "es_ES-mls_10246-low.tts.fp16.onnx"
+  }
+ },
+ "es_ES-mls_9972-low": {
+  "clave": "es_ES-mls_9972-low",
+  "nombre": "mls_9972 · Spanish (Spain)",
+  "idioma": "es",
+  "region": "es_ES",
+  "calidad": "baja",
+  "licencia": "MIT (rhasspy/piper-voices)",
+  "parametros_M": 16.39,
+  "MB": {
+   "fp32": 63.2,
+   "fp16": 32.2
+  },
+  "ms_frase_cpu": 62,
+  "ficheros": {
+   "fp32": "es_ES-mls_9972-low.tts.onnx",
+   "fp16": "es_ES-mls_9972-low.tts.fp16.onnx"
+  }
+ },
+ "es_MX-ald-medium": {
+  "clave": "es_MX-ald-medium",
+  "nombre": "ald · Spanish (Mexico)",
+  "idioma": "es",
+  "region": "es_MX",
+  "calidad": "media",
+  "licencia": "MIT (rhasspy/piper-voices)",
+  "parametros_M": 16.41,
+  "MB": {
+   "fp32": 63.3,
+   "fp16": 32.3
+  },
+  "ms_frase_cpu": 63,
+  "ficheros": {
+   "fp32": "es_MX-ald-medium.tts.onnx",
+   "fp16": "es_MX-ald-medium.tts.fp16.onnx"
+  }
+ },
+ "es_MX-ald-x_low": {
+  "clave": "es_MX-ald-x_low",
+  "nombre": "ald · Spanish (Mexico)",
+  "idioma": "es",
+  "region": "es_MX",
+  "calidad": "muy baja",
+  "licencia": "MIT (rhasspy/piper-voices)",
+  "parametros_M": 5.22,
+  "MB": {
+   "fp32": 20.8,
+   "fp16": 11.0
+  },
+  "ms_frase_cpu": 66,
+  "ficheros": {
+   "fp32": "es_MX-ald-x_low.tts.onnx",
+   "fp16": "es_MX-ald-x_low.tts.fp16.onnx"
+  }
+ },
+ "es_MX-claude-high": {
+  "clave": "es_MX-claude-high",
+  "nombre": "claude · Spanish (Mexico)",
+  "idioma": "es",
+  "region": "es_MX",
+  "calidad": "alta",
+  "licencia": "MIT (rhasspy/piper-voices)",
+  "parametros_M": 16.41,
+  "MB": {
+   "fp32": 63.3,
+   "fp16": 32.3
+  },
+  "ms_frase_cpu": 60,
+  "ficheros": {
+   "fp32": "es_MX-claude-high.tts.onnx",
+   "fp16": "es_MX-claude-high.tts.fp16.onnx"
+  }
+ }
+}

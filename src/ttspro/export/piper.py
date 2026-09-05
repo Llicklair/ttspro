@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -49,45 +50,69 @@ CON_PESO = {"Conv": 1, "ConvTranspose": 1, "Gemm": 1, "MatMul": 1}
 
 
 def pesos(ruta: Path) -> dict[str, np.ndarray]:
+    """Initializers by module name, recovering the anonymous ones.
+
+    A folded weight-norm conv exports its weight as `onnx::Conv_8168` while its
+    bias keeps `flow.flows.0.enc.in_layers.0.bias`. Two ways to name the weight,
+    in order: the SIBLING BIAS of the same node (works on every torch export,
+    since biases are never anonymous), then the node's module path (`/flow/…/Conv`,
+    only on torch >= 2 exports — `es_MX-claude-high` names its nodes `Conv_32`).
+    """
     m = onnx.load(str(ruta))
     bruto = {i.name: numpy_helper.to_array(i) for i in m.graph.initializer}
     nombres = dict(RENOMBRES)
     for nodo in m.graph.node:
         idx = CON_PESO.get(nodo.op_type)
-        if idx is None or len(nodo.input) <= idx or not nodo.name.startswith("/"):
+        if idx is None or len(nodo.input) <= idx:
             continue
         entrada = nodo.input[idx]
-        if entrada in bruto and entrada.startswith("onnx::"):
+        if entrada not in bruto or not entrada.startswith("onnx::"):
+            continue
+        bias = nodo.input[idx + 1] if len(nodo.input) > idx + 1 else ""
+        if bias.endswith(".bias") and not bias.startswith("onnx::"):
+            nombres[entrada] = bias[: -len(".bias")] + ".weight"
+        elif nodo.name.startswith("/"):
             ruta_modulo = nodo.name.lstrip("/").rsplit("/", 1)[0].replace("/", ".")
             nombres[entrada] = f"{ruta_modulo}.weight"
     return {nombres.get(k, k): v for k, v in bruto.items()}
+
+
+_RESBLOCK = re.compile(r"^dec\.resblocks\.(\d+)\.(convs|convs1|convs2)\.(\d+)\.bias$")
 
 
 def resblocks_desde_grafo(ruta: Path) -> tuple[str, list[int], list[list[int]]]:
     """Kernel sizes and dilations of the decoder, read off the Conv nodes.
 
     Also tells ResBlock1 from ResBlock2: `convs1`/`convs2` versus a single `convs`.
+    The block is identified by the node's BIAS initializer, which keeps its module
+    name on every export; node names do not (see `pesos`).
     """
     m = onnx.load(str(ruta))
-    por_bloque: dict[int, list[tuple[int, int]]] = {}
+    por_bloque: dict[int, list[tuple[int, int, int]]] = {}
     tipo = "2"
     for nodo in m.graph.node:
-        if nodo.op_type != "Conv" or "/dec/resblocks." not in nodo.name:
+        if nodo.op_type != "Conv" or len(nodo.input) < 3:
             continue
-        if "convs1." in nodo.name or "convs2." in nodo.name:
+        coincide = _RESBLOCK.match(nodo.input[2])
+        if not coincide:
+            continue
+        indice, rama, capa = int(coincide.group(1)), coincide.group(2), int(coincide.group(3))
+        if rama != "convs":
             tipo = "1"
-        indice = int(nodo.name.split("resblocks.")[1].split("/")[0])
+        if rama == "convs2":
+            continue  # ResBlock1's second convs are dilation 1 by construction
         kernel = next((list(a.ints)[0] for a in nodo.attribute if a.name == "kernel_shape"), 0)
         dilatacion = next((list(a.ints)[0] for a in nodo.attribute if a.name == "dilations"), 1)
-        por_bloque.setdefault(indice, []).append((kernel, dilatacion))
+        por_bloque.setdefault(indice, []).append((capa, kernel, dilatacion))
     kernels, dilataciones, vistos = [], [], set()
     for indice in sorted(por_bloque):
-        kernel = por_bloque[indice][0][0]
+        capas = sorted(por_bloque[indice])
+        kernel = capas[0][1]
         if kernel in vistos:
             continue
         vistos.add(kernel)
         kernels.append(kernel)
-        dilataciones.append([d for _, d in por_bloque[indice]])
+        dilataciones.append([d for _, _, d in capas])
     return tipo, kernels, dilataciones
 
 

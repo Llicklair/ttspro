@@ -826,6 +826,59 @@ fallo que el de «streex_bot»: lo encuentra un caso real, no una revisión.
 
 ---
 
+## 2026-09-06 · ¿Modelos de Hugging Face cargados desde la UI? Lo que cabe y lo que no
+
+**Montaje.** Marcos: «la inferencia tarda demasiado, el modelo base va rápido pero el clonado es
+impreciso y lento; ¿podemos incluir modelos de Hugging Face y cargarlos desde la UI?». Tres
+comprobaciones antes de contestar.
+
+**1. Hugging Face sí sirve ficheros a un navegador ajeno.** `resolve/main/...` responde con dos
+redirecciones; con cabecera `Origin` cada salto devuelve `Access-Control-Allow-Origin` con ese
+origen y el CDN final `*`. Sin `Origin` el primer salto dice `https://huggingface.co` y engaña.
+Cargar un modelo por URL desde la página, incluso aislada con COEP, es posible.
+
+**2. El port de Piper generaliza, tras arreglarlo.** `es_MX-claude-high` fallaba con
+`KeyError: flow.flows.0.enc.in_layers.0.weight`: está exportado con un torch más viejo, los nodos
+se llaman `Conv_32` y no `/flow/flows.0/.../Conv`, y la recuperación de pesos anónimos iba por el
+nombre del nodo. Ahora va por el **bias hermano** del mismo nodo, que conserva el nombre del módulo
+en cualquier export (131 de 132 convs lo tienen; el que no, `dec.conv_post`, trae el peso con
+nombre). Comprobado que en davefx no cambia ni un tensor de los 349 cargados (los 154 que difieren
+entre dos ports son los de entrenamiento, inicializados al azar).
+
+| Voz de Piper (MIT) | tensores | parámetros | fp32 / fp16 | ms/frase CPU | max diff vs torch |
+|---|---|---|---|---|---|
+| es_ES-davefx-medium (la actual) | 349/349 | 16,4 M | 63,3 / 32,3 MB | 48 | 3,5e-5 |
+| es_MX-claude-high | 349/349 | 16,4 M | 63,3 / 32,3 MB | 60 | 5,3e-6 |
+| es_ES-carlfm-x_low | 349/349 | **5,2 M** | **20,7 / 11,0 MB** | **34** | 1,9e-6 |
+
+Cero ops fuera de WebGPU en las tres. «high» resultó ser la misma arquitectura que «medium».
+
+**3. Cada voz trae su tabla de símbolos, y no siempre es compatible.** El export de claude-high
+sincronizó el contrato con 5 símbolos más en ids que davefx tenía vacíos: superconjunto, compatible.
+carlfm-x_low tiene **130 símbolos** frente a 256 y tokenizar con el contrato actual revienta
+(`idx=150 must be within [-130,129]`). Consecuencia de diseño: un paquete de voz es **onnx +
+contrato propio**, y el frontend tokeniza con el de la voz que va a hablar.
+
+**WER en 29 frases de chat normalizadas × 3 semillas (Whisper-small, decodificación por defecto):**
+
+| Voz | WER medio | mediana | perfectas |
+|---|---|---|---|
+| davefx (actual) | 0,319 | 0,200 | 22/87 |
+| claude-high (es_MX) | 0,303 | 0,143 | 21/87 |
+
+Misma liga; el acento mexicano de claude es más claro en la mediana. carlfm no se pudo medir por lo
+de la tabla.
+
+**Consecuencia.** «Cargar modelos de Hugging Face» en genérico, no: cada modelo necesita un port a
+nuestros bloques, un export acotado a WebGPU y un contrato; no existe un cargador universal. Lo que
+sí cabe, y es justo lo que pide el uso: **paquetes de voz portados de Piper, servidos desde HF y
+elegidos desde la UI**, nueve en español, todos MIT, 34–60 ms por frase. Para un chat con «una voz
+por usuario» eso es voz clara y rápida sin conversor. El conversor sigue siendo la única clonación
+de verdad y sigue costando ~2,9 s en wasm: la medición en WebGPU en la 1070 sigue pendiente y es la
+que decide si la voz clonada es utilizable en directo.
+
+---
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una

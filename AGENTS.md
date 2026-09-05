@@ -48,6 +48,8 @@ cd web && npm run dev                # http://localhost:5173
 cd web && npx playwright test        # criterio 5: Chromium headless, wasm, fp16 (TTSPRO_PRECISION="" para fp32)
 cd web && npx playwright test -g "modo chat"   # ADR 0010: veinte mensajes por la cola, escribe test-results/chat.json
 cd web && npx playwright test -g "fuente externa"   # otra aplicacion (streex/Rails) alimenta la cola por SSE desde otro origen
+cd web && npm run build:lib && npm run servir   # la libreria (dist/lib/ttspro.js) y la pagina ejemplo/ en http://127.0.0.1:8080
+cd web && npx playwright test -g "libreria"   # import ttspro.js, clonar desde fichero, predict de texto y de stream (necesita build:lib)
 ```
 
 ## Gates

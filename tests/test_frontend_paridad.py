@@ -112,6 +112,9 @@ def test_chat_deja_algo_legible_o_nada() -> None:
     assert normalizar_chat("JAJAJAJAJA no me lo creo") == "jajaja no me lo creo"
     assert normalizar_chat("@Dark_Lord99 tienes razón") == "Dark Lord99 tienes razón"
     assert normalizar_chat("mira https://x.y/z brutal") == "mira, enlace, brutal"
+    # punctuation glued to a word does not hide it from the tables
+    assert normalizar_chat("gracias por el stream, nice!") == "gracias por el estrim, nais!"
+    assert normalizar_chat("¿q? (hype)") == "¿que? (jaip)"
     assert len(normalizar_chat("palabra " * 100)) <= 200
 
 

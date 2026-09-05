@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>ttspro · librería</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; max-width: 52rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a2e; }
+      pre { background: #f2f3f8; padding: .8rem 1rem; border-radius: 8px; overflow-x: auto; }
+      code { font-family: ui-monospace, Menlo, monospace; }
+      #estado { color: #555; }
+    </style>
+  </head>
+  <body>
+    <h1>ttspro desde la consola</h1>
+    <p id="estado">cargando modelos…</p>
+    <p>
+      <label>audio de referencia (3 s o más): <input id="audio" type="file" accept="audio/*" /></label>
+    </p>
+    <p>Abre la consola del navegador. <code>tts</code> ya está cargado:</p>
+    <pre><code>await tts.clonar(audio.files[0])          // la voz del fichero elegido arriba
+tts.elegirVoz("cof_02484")                 // o un preset: tts.voces lista los 20
+tts.elegirVoz(null)                        // o la voz base, sin conversor (la rápida)
+
+const r = await tts.predict("hola a todos, esto sale de la consola")
+tts.reproducir(r)                          // r.onda, r.sampleRate, r.ms, r.wav()
+
+// un stream: cualquier iterable, async iterable o ReadableStream de textos o {usuario, texto}
+for await (const r of tts.predict(mensajes(), { chat: true, reproducir: true })) console.log(r.texto, r.ms)
+
+// un WebSocket o SSE como stream: envuélvelo en un async generator
+for await (const r of tts.predict(desdeWebSocket("ws://localhost:3000/cable"), { chat: true, reproducir: true })) {}</code></pre>
+
+    <script type="module">
+      import { TTS } from "./ttspro.js";
+
+      const estado = document.getElementById("estado");
+      window.tts = await TTS.cargar({
+        modelos: "/models/",
+        espeak: "/espeak/espeak-ng.wasm",
+        alDescargar: (r, t) => {
+          estado.textContent = `descargando modelos… ${(r / 1e6).toFixed(0)} / ${(t / 1e6).toFixed(0)} MB`;
+        },
+      });
+      estado.textContent = `listo · tts ${tts.proveedores.tts} · conversor ${tts.proveedores.conversor} · ${tts.voces.length} voces preset`;
+
+      // Helpers for the console session above.
+      window.audio = document.getElementById("audio");
+      window.mensajes = async function* () {
+        const lineas = [
+          { usuario: "Pepe_Gamer", texto: "holaaaa q tal todos!!!!" },
+          { usuario: "Ana", texto: "gracias por el stream, nice" },
+          { usuario: "Luci", texto: "KEKW" },
+          "y un texto suelto sin usuario",
+        ];
+        for (const l of lineas) {
+          await new Promise((r) => setTimeout(r, 300));
+          yield l;
+        }
+      };
+      window.desdeWebSocket = (url) => ({
+        async *[Symbol.asyncIterator]() {
+          const cola = [];
+          let despertar = null;
+          const ws = new WebSocket(url);
+          ws.onmessage = (ev) => {
+            cola.push(ev.data);
+            despertar?.();
+          };
+          ws.onclose = () => {
+            cola.push(null);
+            despertar?.();
+          };
+          while (true) {
+            if (cola.length === 0) await new Promise((r) => (despertar = r));
+            const x = cola.shift();
+            if (x === null) return;
+            try {
+              const o = JSON.parse(x);
+              yield o.message ?? o; // ActionCable envelope or plain JSON
+            } catch {
+              yield x;
+            }
+          }
+        },
+      });
+    </script>
+  </body>
+</html>

@@ -109,8 +109,17 @@ const GRITO = new RegExp(`^[${LETRA}]{3,}$`);
 const ESPACIOS = /\s+/g;
 const ESPACIO_ANTES_DE_SIGNO = /\s+([,.;:!?])/g;
 
+const PUNTUACION_PEGADA = /^([¡¿("']*)(.*?)([!?.,;:)"']*)$/;
+
 function token(palabra: string): string {
   if (EMOTES.has(palabra)) return "";
+  // "stream," and "hype!" are the words plus the punctuation: look the word up
+  // and put the punctuation back.
+  const m = PUNTUACION_PEGADA.exec(palabra) as RegExpExecArray;
+  return m[1] + nucleo(m[2]) + m[3];
+}
+
+function nucleo(palabra: string): string {
   // Mentions: "@Dark_Lord" -> "Dark Lord" (the underscore already became a space in 3).
   let p = palabra;
   if (p.startsWith("@")) p = p.slice(1);

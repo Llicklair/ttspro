@@ -33,6 +33,7 @@ chat	Don't stop me now
 chat	gracias por el follow y el stream de hoy, nice
 chat	ese spoiler del boss ha sido un fail, hype para el speedrun
 chat	ok ok ok link pls
+chat	gracias por el stream, nice! (hype) ¿q? "gg" tb.
 nombre	xXDark_Lord99Xx
 nombre	Pepe_Gamer
 nombre	@mod_ana

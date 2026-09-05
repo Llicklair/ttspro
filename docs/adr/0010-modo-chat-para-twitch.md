@@ -57,3 +57,9 @@ por tanto cuestan ~3 s por mensaje en wasm: la cola las aguanta, pero la estadí
   con voz por usuario no va al día en wasm, la palanca es WebGPU o la voz base, no un modelo nuevo.
 - SCOPE ya excluía «streaming dentro de una frase»; esto es streaming **entre** mensajes, que
   siempre estuvo dentro.
+- **Enmienda del mismo día.** El uso real no es la página: es `import { TTS } from "./ttspro.js"`
+  desde un HTML cualquiera y `tts.clonar(fichero)` + `tts.predict(texto | stream)` desde la consola,
+  con los mensajes llegando de streex (Rails) por ActionCable, SSE o postMessage. La librería vive en
+  `web/src/lib`, sale de `npm run build:lib` (500 KB más los wasm al lado) y `scripts/servir.mjs` la
+  sirve con COOP/COEP sin Vite. Las tres puertas para otra aplicación están en
+  `web/src/demo/fuentes.ts`. Todo medido sobre el bundle construido, en [evidencia](../evidencia.md).

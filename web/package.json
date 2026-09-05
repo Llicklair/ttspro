@@ -11,7 +11,9 @@
     "preparar": "node scripts/preparar-estaticos.mjs",
     "dev": "npm run preparar && vite",
     "build": "npm run preparar && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:lib": "npm run preparar && vite build -c vite.lib.config.ts",
+    "servir": "npm run preparar && node scripts/servir.mjs 8080"
   },
   "dependencies": {
     "espeak-ng": "^1.0.2",

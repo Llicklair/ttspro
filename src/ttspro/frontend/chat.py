@@ -115,9 +115,19 @@ _ESPACIOS = re.compile(r"\s+")
 _ESPACIO_ANTES_DE_SIGNO = re.compile(r"\s+([,.;:!?])")
 
 
+_PUNTUACION_PEGADA = re.compile(r"^([¡¿(\"']*)(.*?)([!?.,;:)\"']*)$")
+
+
 def _token(palabra: str) -> str:
     if palabra in EMOTES:
         return ""
+    # "stream," and "hype!" are the words plus the punctuation: look the word up
+    # and put the punctuation back.
+    antes, nucleo, despues = _PUNTUACION_PEGADA.fullmatch(palabra).groups()  # type: ignore[union-attr]
+    return antes + _nucleo(nucleo) + despues
+
+
+def _nucleo(palabra: str) -> str:
     # Mentions: "@Dark_Lord" -> "Dark Lord" (the underscore already became a space in 3).
     if palabra.startswith("@"):
         palabra = palabra[1:]

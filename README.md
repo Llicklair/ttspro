@@ -68,6 +68,36 @@ Every line goes through a chat normalizer (links, @mentions, emotes, emoji, "jaj
 message while the current one plays and drops what has gone stale. Pick the voice policy per
 message: the base voice keeps up on wasm; the converter costs ~3 s a message there and wants WebGPU.
 
+### As a library, from any HTML page
+
+```bash
+cd web && npm run build:lib     # dist/lib/ttspro.js plus the wasm files next to it
+npm run servir                  # http://127.0.0.1:8080 — ejemplo/, dist/lib/ and public/ with COOP/COEP
+```
+
+Open the page, then from the browser console (the example page already did `import { TTS }` and
+left `tts` on `window`):
+
+```js
+import { TTS } from "./ttspro.js";
+const tts = await TTS.cargar({ modelos: "/models/", espeak: "/espeak/espeak-ng.wasm" });
+
+await tts.clonar(audioInput.files[0]);            // a recording (3 s+) -> the voice to use
+tts.elegirVoz("cof_02484");                       // or a preset; tts.voces lists them
+tts.elegirVoz(null);                              // or the base voice, no converter, fastest
+
+const r = await tts.predict("hola a todos");      // { onda, sampleRate, ms, fonemas, wav() }
+await tts.reproducir(r);
+
+// a stream: any iterable, async iterable or ReadableStream of strings or { usuario, texto }
+for await (const r of tts.predict(mensajes, { chat: true, reproducir: true })) console.log(r.texto);
+```
+
+The stream form runs through the same queue as the demo: it synthesizes ahead of playback and
+drops what has waited too long. `chat: true` applies the chat normalizer. The page has to come
+over HTTP (fetch does not work from `file://`), and multithreaded wasm needs the COOP/COEP headers,
+which `npm run servir` sends.
+
 ### Feeding it from your own app (Rails, streex, anything)
 
 The reader does not have to be the one talking to Twitch. If another application already reads

@@ -5,7 +5,7 @@
  * and writes test-results/criterio5.json with every measured number.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
@@ -200,6 +200,92 @@ test("fuente externa: un servidor SSE en otro origen alimenta la cola", async ({
     expect(registro).toContain("nada que leer");
     await page.click("#conectar");
     await expect(page.locator("#conectar")).toHaveText("conectar");
+  } finally {
+    servidor.close();
+  }
+});
+
+// ---------------------------------------------------------------- the library
+//
+// What Marcos described: open an HTML, import ttspro, and from the console call
+// tts.clonar(file) and tts.predict(text | stream). The example page is served by
+// scripts/servir.mjs (COOP/COEP, no Vite) on a random port, so this exercises the
+// built bundle in dist/lib, not the dev sources.
+
+// @ts-expect-error plain JS, no declaration: it is the same server `npm run servir` starts
+import { servir } from "../scripts/servir.mjs";
+
+test("librería: import ttspro.js, clonar desde un fichero, predict de texto y de stream", async ({
+  page,
+}) => {
+  test.skip(!existsSync(resolve(AQUI, "../dist/lib/ttspro.js")), "run `npm run build:lib` first");
+  const servidor = (await servir(0)) as { address: () => { port: number }; close: () => void };
+  const base = `http://127.0.0.1:${servidor.address().port}`;
+  try {
+    page.on("pageerror", (e) => console.log("pageerror:", e.message));
+    await page.goto(`${base}/`);
+    await page.waitForFunction(() => Boolean((window as unknown as { tts?: unknown }).tts), null, {
+      timeout: 240_000,
+    });
+    // the file input, as a person would use it
+    await page.setInputFiles("#audio", {
+      name: "referencia.wav",
+      mimeType: "audio/wav",
+      buffer: readFileSync(REFERENCIA),
+    });
+    const medido = await page.evaluate(async () => {
+      type R = {
+        texto: string;
+        onda: Float32Array;
+        sampleRate: number;
+        ms: number;
+        wav: () => Blob;
+      };
+      const w = window as unknown as {
+        tts: {
+          voces: unknown[];
+          proveedores: Record<string, string>;
+          clonar: (f: File) => Promise<Float32Array>;
+          elegirVoz: (v: string | null) => Float32Array | null;
+          predict: (e: unknown, o?: unknown) => Promise<R> & AsyncIterable<R>;
+        };
+        audio: HTMLInputElement;
+        mensajes: () => AsyncIterable<unknown>;
+      };
+      const vector = await w.tts.clonar(w.audio.files?.[0] as File);
+      const clonado = await w.tts.predict("hola, esta voz sale de un fichero");
+      w.tts.elegirVoz(null);
+      const base = await w.tts.predict("y esta es la voz base");
+      const stream: Array<{ texto: string; segundos: number }> = [];
+      for await (const r of w.tts.predict(w.mensajes(), { chat: true })) {
+        stream.push({ texto: r.texto, segundos: r.onda.length / r.sampleRate });
+      }
+      return {
+        voces: w.tts.voces.length,
+        proveedores: w.tts.proveedores,
+        vector: vector.length,
+        clonado: {
+          segundos: clonado.onda.length / clonado.sampleRate,
+          ms: clonado.ms,
+          wavBytes: clonado.wav().size,
+        },
+        base: { segundos: base.onda.length / base.sampleRate, ms: base.ms },
+        stream,
+      };
+    });
+    console.log(JSON.stringify(medido));
+    expect(medido.voces).toBe(20);
+    expect(medido.vector).toBe(256);
+    expect(medido.clonado.segundos).toBeGreaterThan(1);
+    expect(medido.clonado.wavBytes).toBeGreaterThan(44);
+    expect(medido.base.segundos).toBeGreaterThan(1);
+    // four items: three readable (one with a user, one bare) and "KEKW" -> "jajaja"
+    expect(medido.stream.map((s) => s.texto)).toEqual([
+      "Pepe Gamer: hola que tal todos!",
+      "Ana: gracias por el estrim, nais",
+      "Luci: jajaja",
+      "y un texto suelto sin usuario",
+    ]);
   } finally {
     servidor.close();
   }

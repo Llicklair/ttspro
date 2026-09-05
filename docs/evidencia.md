@@ -799,6 +799,33 @@ paridad). Lo encontró el nombre del bot de prueba, no una revisión.
 
 ---
 
+## 2026-09-05 · La librería: `import { TTS }` desde cualquier HTML
+
+**Montaje.** Marcos describe cómo lo va a usar: abre un HTML, importa el módulo, y desde la consola
+del navegador `tts.predict(...)`, con el audio de referencia de un `<input type="file">` y un stream
+de mensajes. Hecho como `web/src/lib/index.ts`, empaquetado con Vite a `dist/lib/ttspro.js`, y
+medido con Playwright sobre **el bundle construido**, servido por `scripts/servir.mjs` (COOP/COEP,
+sin Vite), no sobre las fuentes.
+
+**Primer build: 99 MB.** El modo librería de Vite incrusta todos los assets en base64, y dentro
+iban las dos variantes del wasm de ORT y el de espeak. Un build normal con entrada TS y
+`assetsInlineLimit: 0` deja **ttspro.js en 500 KB** y emite al lado los wasm que hacen falta
+(ORT 27,8 MB, espeak 18,5 MB), que se descargan solo cuando se usan.
+
+| Desde la consola, wasm, fp32 | |
+|---|---|
+| `tts.clonar(fichero)` | vector de 256 desde un wav de 6 s |
+| `tts.predict("hola, esta voz sale de un fichero")` con conversor | 1,54 s de audio en 1 913 ms |
+| `tts.predict("y esta es la voz base")` sin conversor | 1,10 s de audio en **302 ms** |
+| `tts.predict(stream, {chat: true})`, 4 elementos | 4 resultados, en orden, por la misma cola del demo |
+
+**Lo que salió al medir.** «gracias por el stream, nice» no respelaba «stream» porque el token era
+«stream,» con la coma pegada, y la tabla mira tokens enteros. Ahora la puntuación pegada se separa,
+se busca la palabra y se vuelve a pegar («¿q?» → «¿que?», «(hype)» → «(jaip)»). Es el mismo tipo de
+fallo que el de «streex_bot»: lo encuentra un caso real, no una revisión.
+
+---
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una

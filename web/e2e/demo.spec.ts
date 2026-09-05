@@ -1,7 +1,8 @@
 /**
- * Criterion 5 (SCOPE.md) on the real page: wasm provider, fp32 graphs, a
- * reference wav, a 10-word sentence. Writes test-results/criterio5.json with
- * every measured number for tests/terminado to assert on.
+ * Criterion 5 (SCOPE.md) on the real page, with the chain of ADR 0007:
+ * text -> tts.onnx (base voice) -> conversor.onnx (chosen voice), wasm provider.
+ * Exercises both ways of picking a voice (preset and cloned from a recording)
+ * and writes test-results/criterio5.json with every measured number.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -10,13 +11,12 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
-
 const REFERENCIA = process.env.TTSPRO_REFERENCIA ?? resolve(AQUI, "referencia.wav");
 const FRASE = "The quick brown fox jumps over the lazy dog today.";
-// "" = fp32 (what wasm should run: faster than fp16 there and no NaN); ".fp16" to measure the other
+// "" = fp32 (what wasm should run: faster than fp16 there and no NaN)
 const PRECISION = process.env.TTSPRO_PRECISION ?? "";
 
-test("carga, clona y sintetiza en wasm", async ({ page }) => {
+test("carga, elige voz, sintetiza y convierte en wasm", async ({ page }) => {
   const descargas: Record<string, number> = {};
   page.on("response", async (r) => {
     const url = new URL(r.url()).pathname;
@@ -29,28 +29,38 @@ test("carga, clona y sintetiza en wasm", async ({ page }) => {
   await page.selectOption("#precision", PRECISION);
   await page.selectOption("#proveedor", "wasm");
   await page.click("#cargar");
-  await expect(page.locator("#estado")).toContainText("listo", { timeout: 180_000 });
+  await expect(page.locator("#estado")).toContainText("listo", { timeout: 240_000 });
   const estado = (await page.locator("#estado").textContent()) ?? "";
-  expect(estado).toContain("crossOriginIsolated=true");
+  expect(estado).toContain("aislado=true");
+
+  await page.waitForFunction(() => document.querySelectorAll("#preset option").length > 1, null, {
+    timeout: 120_000,
+  });
+  await page.selectOption("#preset", "0");
+  await expect(page.locator("#infoVoz")).toContainText("preset");
 
   await page.setInputFiles("#fichero", REFERENCIA);
-  await expect(page.locator("#locutor")).toContainText("embedding en", { timeout: 60_000 });
+  await expect(page.locator("#infoVoz")).toContainText("voz clonada", { timeout: 120_000 });
 
   await page.fill("#texto", FRASE);
   await page.selectOption("#idioma", "en");
   const t0 = Date.now();
   await page.click("#sintetizar");
-  await expect(page.locator("#medidas")).toContainText("RTF", { timeout: 120_000 });
+  await expect(page.locator("#medidas")).toContainText("RTF", { timeout: 180_000 });
   const ms_total_sintesis = Date.now() - t0;
   const r = (await page.evaluate(() => (window as unknown as { __ttspro: unknown }).__ttspro)) as {
     muestras: number;
     sampleRate: number;
     ms_modelo: number;
+    ms_conversor: number;
     ms_frontend: number;
     proveedor: string;
     tokens: number;
+    convertido: boolean;
   };
   expect(r.proveedor).toBe("wasm");
+  expect(r.convertido).toBe(true);
+  expect(r.ms_conversor).toBeGreaterThan(0);
   expect(r.muestras / r.sampleRate).toBeGreaterThan(1.5);
 
   const mb_descarga_total = Object.values(descargas).reduce((a, b) => a + b, 0) / 1e6;
@@ -60,9 +70,10 @@ test("carga, clona y sintetiza en wasm", async ({ page }) => {
     palabras: FRASE.split(/\s+/).length,
     ms_total_sintesis,
     ms_modelo: r.ms_modelo,
+    ms_conversor: r.ms_conversor,
     ms_frontend: r.ms_frontend,
     segundos_audio: r.muestras / r.sampleRate,
-    rtf: r.ms_modelo / 1000 / (r.muestras / r.sampleRate),
+    rtf: (r.ms_modelo + r.ms_conversor) / 1000 / (r.muestras / r.sampleRate),
     proveedor: r.proveedor,
     tokens: r.tokens,
     estado,

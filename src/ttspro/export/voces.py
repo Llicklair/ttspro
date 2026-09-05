@@ -1,16 +1,20 @@
-"""Voice presets for the demo: `models/voces.json`, speaker vectors with a label.
+"""`models/voces.json` for the demo: the base voice and the preset voices.
 
-    uv run python -m ttspro.export.voces --coqui <carpeta del VITS de coqui>   # the ported model
     uv run python -m ttspro.export.voces --cache cache/openslr_es cache/vctk --por-idioma 12
 
-A preset is only valid for a model that expects the SAME speaker space, so the
-file carries `espacio` and the demo refuses a mismatch:
+With cloning as post-processing (ADR 0007) a "voice" is no longer a speaker
+embedding for the synthesizer: it is a **converter vector**, and the file carries
+two things the browser cannot compute on its own:
 
-- `coqui-emb_g-vctk`: rows of coqui's `emb_g` (109 VCTK speakers). What the
-  ported, un-finetuned model understands.
-- `wespeaker-resnet34-LM`: mean embedding per speaker computed by
-  models/speaker_encoder.onnx over the prepared cache. What the fine-tuned model
-  understands, and the same space the mic/file cloning produces.
+- `base`: the speaker embedding the TTS is driven with (its fixed voice) AND the
+  converter vector of that voice, measured on the TTS's OWN output. That second
+  one is what the converter needs as source, and measuring it on synthetic audio
+  rather than on the original speaker matters: the converter sees what the TTS
+  produces, not what the human sounded like.
+- `voces`: for each preset, the converter vector of a real recording of that
+  speaker, plus a label.
+
+The vectors are computed with the very same graphs the browser runs.
 """
 
 from __future__ import annotations
@@ -21,10 +25,13 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 import torch
+import torchaudio
 
 RAIZ = Path(__file__).resolve().parents[3]
 MODELOS = RAIZ / "models"
+SR = 22050
 
 PAISES = {
     "ar": "Argentina",
@@ -34,67 +41,21 @@ PAISES = {
     "pr": "Puerto Rico",
     "ve": "Venezuela",
 }
-
-
-def desde_coqui(carpeta: Path) -> tuple[str, list[dict]]:
-    fichero = next(carpeta.glob("model_file.pth*"))
-    emb_g = torch.load(fichero, map_location="cpu", weights_only=False)["model"]["emb_g.weight"]
-    ids = json.loads((carpeta / "speaker_ids.json").read_text(encoding="utf-8"))
-    info = {}
-    speaker_info = next(RAIZ.glob("data/raw/vctk/**/speaker-info.txt"), None)
-    if speaker_info:
-        for linea in speaker_info.read_text(encoding="utf-8").splitlines()[1:]:
-            partes = linea.split()
-            if len(partes) >= 4:
-                info[partes[0]] = {"genero": partes[2], "acento": " ".join(partes[3:5])}
-    voces = []
-    for nombre, indice in sorted(ids.items(), key=lambda kv: kv[0]):
-        extra = info.get(nombre, {})
-        etiqueta = f"{nombre} · {extra.get('genero', '?')} · {extra.get('acento', 'English')}"
-        voces.append(
-            {"id": nombre, "nombre": etiqueta, "idioma": "en", "embedding": emb_g[indice].tolist()}
-        )
-    return "coqui-emb_g-vctk", voces
-
-
-def desde_cache(caches: list[Path], por_idioma: int) -> tuple[str, list[dict]]:
-    por_locutor: dict[tuple[str, str], list] = defaultdict(list)
-    segundos: dict[tuple[str, str], float] = defaultdict(float)
-    for cache in caches:
-        for e in torch.load(cache / "indice.pt"):
-            clave = (e["idioma"], e["locutor"])
-            por_locutor[clave].append(e["embedding"].numpy())
-            segundos[clave] += e["segundos"]
-    info_vctk = _info_vctk()
-    voces = []
-    for idioma in sorted({k[0] for k in por_locutor}):
-        candidatos = sorted((k for k in por_locutor if k[0] == idioma), key=lambda k: -segundos[k])
-        # Alternate genders: the speakers with most audio in VCTK are all female,
-        # and a preset list of twelve identical-sounding voices is not a preset list.
-        colas: dict[str, list] = {"F": [], "M": [], "?": []}
-        for clave in candidatos:
-            colas[_genero(clave[0], clave[1], info_vctk)].append(clave)
-        elegidos = []
-        while len(elegidos) < por_idioma and any(colas.values()):
-            for g in ("F", "M", "?"):
-                if colas[g] and len(elegidos) < por_idioma:
-                    elegidos.append(colas[g].pop(0))
-        for _, locutor in elegidos:
-            media = np.mean(por_locutor[(idioma, locutor)], axis=0)
-            media = media / (np.linalg.norm(media) + 1e-8)
-            voces.append(
-                {
-                    "id": locutor,
-                    "nombre": _etiqueta(idioma, locutor, segundos[(idioma, locutor)], info_vctk),
-                    "idioma": idioma,
-                    "embedding": media.astype(np.float32).tolist(),
-                }
-            )
-    return "wespeaker-resnet34-LM", voces
+FRASES_BASE = {
+    "es": [
+        "La casa tiene un jardín muy grande con árboles y flores",
+        "Mañana por la mañana iremos a la playa bien temprano",
+        "El libro que me prestaste la semana pasada era interesante",
+    ],
+    "en": [
+        "The house has a very large garden with trees and flowers",
+        "Tomorrow morning we will go to the beach quite early",
+        "The book you lent me last week was really interesting",
+    ],
+}
 
 
 def _info_vctk() -> dict[str, str]:
-    """speaker-info.txt: `p225  23  F  English  Southern England`."""
     fichero = next(RAIZ.glob("data/raw/vctk/**/speaker-info.txt"), None)
     if fichero is None:
         return {}
@@ -113,47 +74,137 @@ def _genero(idioma: str, locutor: str, info_vctk: dict[str, str]) -> str:
     return etiqueta.split(" · ")[0] if etiqueta[:1] in ("F", "M") else "?"
 
 
-def _etiqueta(idioma: str, locutor: str, seg: float, info_vctk: dict[str, str]) -> str:
-    # OpenSLR es ids look like "arf_00295": country + gender letter
+def _etiqueta(idioma: str, locutor: str, info_vctk: dict[str, str]) -> str:
     if idioma == "es" and "_" in locutor and len(locutor.split("_")[0]) == 3:
         pref = locutor.split("_")[0]
         pais = PAISES.get(pref[:2], pref[:2])
         genero = {"f": "F", "m": "M"}.get(pref[2], "?")
-        return f"{locutor} · {genero} · español ({pais}) · {seg / 60:.0f} min"
+        return f"{locutor} · {genero} · español ({pais})"
     if locutor in info_vctk:
-        return f"{locutor} · {info_vctk[locutor]} · {seg / 60:.0f} min"
-    return f"{locutor} · {idioma} · {seg / 60:.0f} min"
+        return f"{locutor} · {info_vctk[locutor]}"
+    return f"{locutor} · {idioma}"
+
+
+def _onda(entrada: dict) -> torch.Tensor:
+    onda, sr = sf.read(entrada["wav"], dtype="float32", always_2d=True)
+    onda = torch.from_numpy(onda.mean(axis=1))
+    if sr != SR:
+        onda = torchaudio.functional.resample(onda, sr, SR)
+    return onda.unsqueeze(0)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--coqui", type=Path, default=None)
-    ap.add_argument("--cache", type=Path, nargs="*", default=None)
+    ap.add_argument("--cache", type=Path, nargs="+", required=True)
     ap.add_argument("--por-idioma", type=int, default=12)
+    ap.add_argument("--referencias", type=int, default=5, help="audios por voz preset")
+    ap.add_argument("--checkpoint", type=Path, default=None, help="TTS para medir la voz base")
     ap.add_argument("--salida", type=Path, default=MODELOS / "voces.json")
     args = ap.parse_args()
-    if args.coqui:
-        espacio, voces = desde_coqui(args.coqui)
-    elif args.cache:
-        espacio, voces = desde_cache(args.cache, args.por_idioma)
-    else:
-        ap.error("--coqui o --cache")
-    args.salida.write_text(
-        json.dumps(
-            {"espacio": espacio, "dim": len(voces[0]["embedding"]), "voces": voces},
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
+
+    from ttspro.export.tts import cargar as cargar_tts
+    from ttspro.export.tts import config_por_defecto
+    from ttspro.frontend import tokenizar
+    from ttspro.model.conversor import cargar as cargar_conversor
+    from ttspro.model.fbank import SpecConv
+
+    conversor, _ = cargar_conversor()
+    # The in-graph spectrogram, not the training one: this must be bit-for-bit what
+    # the browser feeds voz.onnx (and rule 7 forbids importing ttspro.train here).
+    spec = SpecConv().eval()
+
+    def vector_voz(ondas: list[torch.Tensor]) -> np.ndarray:
+        with torch.no_grad():
+            vs = [conversor.voz(spec(o)) for o in ondas]
+        return torch.stack(vs).mean(0).reshape(-1).numpy()
+
+    por_locutor: dict[tuple[str, str], list] = defaultdict(list)
+    segundos: dict[tuple[str, str], float] = defaultdict(float)
+    for cache in args.cache:
+        for e in torch.load(cache / "indice.pt"):
+            por_locutor[(e["idioma"], e["locutor"])].append(e)
+            segundos[(e["idioma"], e["locutor"])] += e["segundos"]
+
+    info_vctk = _info_vctk()
+    voces = []
+    for idioma in sorted({k[0] for k in por_locutor}):
+        candidatos = sorted(
+            (k for k in por_locutor if k[0] == idioma and len(por_locutor[k]) > args.referencias),
+            key=lambda k: -segundos[k],
+        )
+        colas: dict[str, list] = {"F": [], "M": [], "?": []}
+        for clave in candidatos:
+            colas[_genero(clave[0], clave[1], info_vctk)].append(clave)
+        elegidos: list[tuple[str, str]] = []
+        while len(elegidos) < args.por_idioma and any(colas.values()):
+            for g in ("F", "M", "?"):
+                if colas[g] and len(elegidos) < args.por_idioma:
+                    elegidos.append(colas[g].pop(0))
+        for _, locutor in elegidos:
+            ondas = [_onda(e) for e in por_locutor[(idioma, locutor)][: args.referencias]]
+            voces.append(
+                {
+                    "id": locutor,
+                    "nombre": _etiqueta(idioma, locutor, info_vctk),
+                    "idioma": idioma,
+                    "voz": vector_voz(ondas).tolist(),
+                }
+            )
+        print(f"{idioma}: {len(elegidos)} voces", flush=True)
+
+    # The base voice: the TTS speaks with one fixed speaker embedding, and the
+    # converter must be told what THAT sounds like, measured on synthetic audio.
+    checkpoint = args.checkpoint
+    if checkpoint is None:
+        hechos = MODELOS / "tts.export.json"
+        checkpoint = Path(json.loads(hechos.read_text(encoding="utf-8"))["checkpoint"])
+    cfg = config_por_defecto()
+    tts = cargar_tts(checkpoint, cfg).preparar_export()
+    cfg = tts.cfg
+    idiomas = {"es": 0, "en": 1}
+    candidatas_es = [k for k in por_locutor if k[0] == "es"]
+    base_clave = (
+        max(candidatas_es, key=lambda k: segundos[k]) if candidatas_es else next(iter(por_locutor))
     )
+    emb_base = por_locutor[base_clave][0]["embedding"].unsqueeze(0)
+    ondas_base = []
+    for i, texto in enumerate(FRASES_BASE.get(base_clave[0], FRASES_BASE["es"])):
+        _, sec = tokenizar(texto, base_clave[0])
+        t = torch.tensor([sec])
+        n = t.shape[1]
+        g = torch.Generator().manual_seed(i)
+        with torch.no_grad():
+            onda = tts.inferir(
+                t,
+                torch.tensor([n]),
+                emb_base,
+                torch.tensor([idiomas[base_clave[0]]]),
+                torch.randn(1, cfg.inter_channels, n * 12, generator=g),
+                torch.randn(1, 2, n, generator=g),
+                torch.tensor([0.667, 0.5, 1.0]),
+            )
+        ondas_base.append(onda[0])
+
+    salida = {
+        "espacio": "openvoice-v2",
+        "dim": len(voces[0]["voz"]),
+        "base": {
+            "locutor": base_clave[1],
+            "idioma": base_clave[0],
+            "checkpoint": str(checkpoint),
+            "embedding_tts": emb_base.reshape(-1).tolist(),
+            "voz": vector_voz(ondas_base).tolist(),
+        },
+        "voces": voces,
+    }
+    args.salida.write_text(json.dumps(salida, ensure_ascii=False), encoding="utf-8")
     print(
         json.dumps(
             {
-                "espacio": espacio,
-                "voces": len(voces),
-                "por_idioma": {
-                    i: sum(v["idioma"] == i for v in voces) for i in {v["idioma"] for v in voces}
-                },
                 "fichero": str(args.salida),
+                "MB": round(args.salida.stat().st_size / 1e6, 2),
+                "voces": len(voces),
+                "base": base_clave,
             },
             ensure_ascii=False,
         )

@@ -19,6 +19,7 @@ export interface Grafo {
   opset: number;
   frecuencia_entrada_hz?: number;
   frecuencia_salida_hz?: number;
+  frecuencia_hz?: number;
   entradas: Tensor[];
   salidas: Tensor[];
 }
@@ -26,7 +27,8 @@ export interface Grafo {
 export interface Contrato {
   version: number;
   embedding_locutor: { dim: number; encoder: string };
-  grafos: { speaker_encoder: Grafo; tts: Grafo };
+  /** tts + speaker_encoder (ADR 0002); voz + conversor (ADR 0007). */
+  grafos: { speaker_encoder: Grafo; tts: Grafo; voz: Grafo; conversor: Grafo };
   idiomas: string[];
   simbolos: { pad: number; tabla: string[]; blank_entre_tokens?: boolean };
 }

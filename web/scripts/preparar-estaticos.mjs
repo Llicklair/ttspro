@@ -42,6 +42,10 @@ for (const f of [
   "speaker_encoder.fp16.onnx",
   "tts.onnx",
   "tts.fp16.onnx",
+  "voz.onnx",
+  "voz.fp16.onnx",
+  "conversor.onnx",
+  "conversor.fp16.onnx",
 ]) {
   const origen = join(modelos, f);
   if (!existsSync(origen)) {

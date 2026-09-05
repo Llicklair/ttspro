@@ -534,6 +534,50 @@ existen modelos ya entrenados con licencia MIT (Piper español). Queda escrito e
 0,38–0,53 frente a un techo de 0,78 es un parecido reconocible, no una suplantación, y el criterio
 4 (≥ 0,55 y ≥ 0,75 × techo) todavía no pasa.
 
+## 2026-09-05 · La cadena de clonación entera, en el navegador — FUNCIONA; EL CUELLO ES EL TTS BASE Y EL PESO
+
+**Montaje.** Los cuatro grafos exportados y servidos por Vite; Chromium headless, proveedor
+`wasm`, fp32. La página carga `tts.onnx`, `voz.onnx` y `conversor.onnx`, elige voz (preset o
+clonada de un fichero) y sintetiza. En paralelo, la misma cadena medida en Python sobre los
+**mismos ficheros ONNX** con seis locutores destino no vistos.
+
+**Clonación (ONNX, seis locutores):**
+
+| | Coseno con el destino |
+|---|---|
+| Solo TTS en su voz base | 0,141 (suelo) |
+| **TTS + conversor** | **0,432** |
+| Techo (dos audios reales del destino) | 0,758 |
+
+Mejor que el 0,384 medido en PyTorch, porque aquí la referencia son los cinco audios encadenados
+en vez de la media de sus vectores. **El export no pierde nada.**
+
+**En el navegador**, frase de 10 palabras, wasm:
+
+| | |
+|---|---|
+| TTS | 3 825 ms |
+| Conversor | 2 968 ms |
+| Frontend (espeak wasm) | 168 ms |
+| Audio generado | 4,14 s |
+| RTF total | 1,64 |
+| Descarga fp32 | **307 MB** (tts 121 · conversor 132 · voz 7,5 · ORT 27,8 · espeak 18,5) |
+| Descarga fp16 | ~178 MB |
+
+**Consecuencia.** El criterio 5 falla por los dos lados: 7 s en vez de < 3, y 178 MB en vez de
+≤ 110. Y el WER de la cadena es 0,42–0,49 (mediana 0,37–0,44), que **no es culpa del conversor**:
+es nuestro TTS de 2 000 pasos, que ya venía con 0,32. El conversor apenas lo mueve, y en mediana
+lo mejora.
+
+Las tres palancas, en orden de rendimiento por esfuerzo:
+
+1. **Cambiar el TTS base por una voz española de Piper** (MIT, VITS con fonemas de espeak, nuestra
+   misma familia): WER debería caer a ~0,05, y el `x_low` pesa 28 MB fp32 / ~14 fp16, o sea
+   **−47 MB** respecto al nuestro. Arregla calidad y peso a la vez.
+2. **WebGPU en vez de wasm** para el tiempo: en la 1070 el TTS solo iba a RTF 0,46 frente a 1,04
+   en wasm; el conversor debería escalar igual.
+3. **int8 en el conversor** si con lo anterior sigue sin caber.
+
 ---
 
 ## Mediciones pendientes que deciden algo

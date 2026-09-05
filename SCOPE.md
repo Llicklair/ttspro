@@ -23,10 +23,10 @@ como demo.
 | **Streaming dentro de una frase** | Un modelo no autorregresivo emite la frase entera. Lo que SÍ entra es trocear por oraciones en el frontend JS y reproducir la primera mientras se sintetiza la segunda. |
 | **Emoción, estilo, SSML** | Después del criterio de terminado, y con ADR. |
 | **Idiomas fuera del conjunto entrenado** | El MVP entrena **español e inglés**. Añadir un idioma es datos + fonemizador + reentrenar, no una rama de código. |
-| **Watermarking de audio y anti-spoofing** | No porque no importe: porque hoy no se publica ningún peso. Se reabre en el ADR de publicación, **antes** de publicar. |
+| **Watermarking de audio y anti-spoofing** | No porque no importe: porque hoy no se publica ningún peso. Se reabre en el ADR de publicación, **antes** de publicar. Reabierto y contestado el 2026-09-05 en [ADR 0009](docs/adr/0009-publicacion-en-github.md): se publica el repo **sin pesos**, así que la puerta sigue cerrada; se vuelve a abrir el día que se publique un peso o se sirva la demo online. |
 | **Un LLM en el camino de síntesis** (normalizar o "mejorar" texto con modelo) | Normalización determinista con paridad Python/JS (regla 3). El navegador sin red sintetiza (regla 9). |
 | **Apps nativas** (móvil, Electron, React Native) | El runtime es el navegador. Si ORT Web corre ahí, corre. |
-| **Clonar sin consentimiento** | Las voces de referencia del repo llevan licencia o consentimiento escrito (regla 10). La política de uso del modelo se escribe en el model card antes de publicar. |
+| **Clonar sin consentimiento** | Las voces de referencia del repo llevan licencia o consentimiento escrito (regla 10). La política de uso del modelo se escribe en el model card antes de publicar: escrita el 2026-09-05 en [MODEL_CARD.md](MODEL_CARD.md). |
 
 ## Criterio de terminado
 

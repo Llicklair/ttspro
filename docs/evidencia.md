@@ -652,6 +652,51 @@ frente a un techo de 0,76 es un parecido, no una copia. El criterio 4 sigue sin 
 
 ---
 
+## 2026-09-05 · Reconstruir los modelos desde cero, sin corpus y sin entrenar
+
+**Montaje.** Pregunta de Marcos: publicar el repo en GitHub «sin el entrenamiento, para que otro
+usuario lo utilice». Eso solo es verdad si un desconocido puede producir los pesos, así que se
+escribió `ttspro.export.modelos` y se corrió **borrando el camino previo**: descarga la voz de
+Piper de Hugging Face, la porta, exporta el TTS, el conversor, el vector de voz y el speaker
+encoder.
+
+| Grafo | fp32 | fp16 | Igual que lo medido antes |
+|---|---|---|---|
+| `tts.onnx` | 63,3 MB | 32,3 MB | sí |
+| `conversor.onnx` | 132,3 MB | 66,5 MB | sí |
+| `voz.onnx` | 7,5 MB | 3,7 MB | sí |
+| `speaker_encoder.onnx` | 27,4 MB | 14,2 MB | sí |
+
+Un solo comando, sin GPU y sin un byte de corpus. Lo único que no se regenera así es
+`models/voces.json` (los 20 presets se midieron sobre ~12 GB de VCTK y OpenSLR es), y por eso pasa
+a viajar en git: 115 KB de vectores, ningún audio.
+
+**El criterio 2 era un falso negativo.** `tests/terminado` fallaba con `zip() argument 2 is longer
+than argument 1`: el test alimentaba el grafo con las siete entradas de siempre y desde el ADR 0008
+la voz fija tiene cinco, porque el exportador poda `embedding` e `idioma`. Ahora construye el feed
+**por nombre desde el contrato**, igual que hace el navegador, y pasa. No cambió el modelo: cambió
+un test que llevaba dos ADR mintiendo.
+
+| Criterio de terminado | Estado |
+|---|---|
+| 1 existe y carga, firma = contrato | pasa |
+| 2 paridad PyTorch ↔ ORT (log-mel) | **pasa** (antes: error de firma) |
+| 3 paridad frontend Python ↔ JS | pasa |
+| 4 WER ≤ 0,10 y SECS ≥ 0,55 | **falla**: similitud 0,338 |
+| 5 navegador < 3 s y ≤ 110 MB | **falla**: 3,46 s y 249,4 MB en fp32 wasm |
+
+**`web/e2e/referencia.wav` no tenía procedencia.** Se buscó: 102 124 audios de VCTK, LibriTTS-R y
+OpenSLR es filtrados por duración (963 candidatos a ±20 ms) y correlacionados por envolvente; el
+mejor da 0,79, que no es una coincidencia sino un parecido. Origen desconocido, así que fuera:
+ahora es `p225_003` de VCTK (CC BY 4.0), acreditado en THIRD_PARTY.md. El e2e sigue verde con él.
+
+**Consecuencia.** El repo es publicable en cuanto se elija licencia
+([ADR 0009](adr/0009-publicacion-en-github.md)): 2,7 MB en git, ningún peso versionado, ninguna
+credencial, y tres comandos desde clonar hasta oír la voz. Los dos criterios rojos se publican
+dichos, no escondidos.
+
+---
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una

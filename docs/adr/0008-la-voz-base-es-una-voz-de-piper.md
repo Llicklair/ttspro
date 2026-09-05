@@ -51,3 +51,9 @@ Tres cosas que el port arrastra y que ahora son **datos del contrato**, no regla
   siguen ahí. Cambia de qué se parte, no a dónde se va.
 - El presupuesto sigue sin cumplirse: 148,8 MB fp16 previstos contra 110. Ahora el peso lo domina
   el conversor (66,5 MB), no el TTS.
+
+---
+
+**Enmienda (2026-09-05, [ADR 0009](0009-publicacion-en-github.md)):** el port vive ahora en
+`ttspro.export.piper`, no en `ttspro.train.piper`. Nunca importó nada de entrenamiento, y desde
+`export` la voz base se reconstruye sin tocar esa capa.

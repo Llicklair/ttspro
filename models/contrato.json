@@ -476,8 +476,10 @@
  },
  "cadena": "texto -> tts.onnx (voz base) -> conversor.onnx (voz destino). El vector de voz sale de voz.onnx sobre una grabacion de referencia, y se calcula una vez por voz. ADR 0007.",
  "licencias": {
-  "tts": "propio, desde tts_models/en/vctk/vits de coqui (Apache-2.0)",
-  "speaker_encoder": "Wespeaker/wespeaker-voxceleb-resnet34-LM (CC-BY-4.0)",
-  "voz y conversor": "myshell-ai/OpenVoiceV2 (MIT)"
+  "tts": "es_ES-davefx-medium de Piper (MIT); su dataset, davefx, es CC0",
+  "conversor y voz": "myshell-ai/OpenVoiceV2 (MIT)",
+  "speaker_encoder": "Wespeaker/wespeaker-voxceleb-resnet34-LM (CC-BY-4.0); solo mide, no se sirve al navegador",
+  "voces.json": "vectores derivados de VCTK (CC BY 4.0) y OpenSLR 61/71/72/73/74/75 (CC BY-SA 4.0)",
+  "fonemizador": "espeak-ng (GPL-3.0-or-later), cargado como WASM en el navegador"
  }
 }

@@ -1,6 +1,6 @@
 """Port a Piper voice (MIT) into `Sintetizador`, straight from its ONNX.
 
-    uv run python -m ttspro.train.piper --onnx .scratch/piper/es_ES-davefx-medium.onnx \
+    uv run python -m ttspro.export.piper --onnx .scratch/piper/es_ES-davefx-medium.onnx \
         --salida runs/piper_es/G_0.pt
 
 Piper publishes ONNX, not PyTorch checkpoints, but the export keeps the original

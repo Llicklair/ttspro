@@ -20,13 +20,16 @@ uv run pytest tests/terminado -q    # criterio de terminado del MVP — hoy FALL
 cd web && npm ci && npm test        # runtime JS: frontend (espeak-ng WASM) y contrato
 gb who --html mapa.html             # el mapa navegable del repo (derivado, no se commitea)
 
-# el ciclo del modelo (ver data/README.md para el manifiesto)
+# los modelos, sin corpus y sin entrenar: descarga los pesos publicos y exporta los 4 grafos
+uv run python -m ttspro.export.modelos            # ADR 0009; es el camino de quien clona el repo
+
+# el ciclo del modelo pieza a pieza (ver data/README.md para el manifiesto)
 uv run python -m ttspro.export.speaker_encoder                 # models/speaker_encoder.onnx (+ .fp16)
 uv run python -m ttspro.data.preparar --manifiesto data/manifests/X.tsv --salida cache/X
 uv run python -m ttspro.train.entrenar --cache cache/X --salida runs/X --batch 16 --fp16
 uv run python -m ttspro.export.tts --checkpoint runs/X/G_NNNN.pt  # models/tts.onnx (+ .fp16)
 uv run python -m ttspro.train.inicializar --coqui <carpeta> --salida runs/init/G_0.pt  # partir del VITS de coqui
-uv run python -m ttspro.train.piper --onnx <voz.onnx> --salida runs/piper_es/G_0.pt  # portar una voz de Piper (ADR 0008)
+uv run python -m ttspro.export.piper --onnx <voz.onnx> --salida runs/piper_es/G_0.pt  # portar una voz de Piper (ADR 0008)
 uv run python -m ttspro.export.conversor                        # models/voz.onnx y conversor.onnx (ADR 0007)
 uv run python -m ttspro.train.evaluar --checkpoint runs/X/G_NNNN.pt --cache cache/*  # WER y SECS
 uv run python -m ttspro.export.voces --cache cache/openslr_es cache/vctk  # presets del demo

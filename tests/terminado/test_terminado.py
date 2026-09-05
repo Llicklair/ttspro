@@ -50,7 +50,7 @@ def test_2_paridad_pytorch_ort_logmel_menor_que_0_1() -> None:
     import onnxruntime as ort
     import torch
 
-    from ttspro.export.tts import cargar
+    from ttspro.export.tts import ENTRADAS_COMPLETAS, cargar
     from ttspro.frontend import tokenizar
     from ttspro.model.config import ConfigSintetizador
     from ttspro.train.mel import mel_spectrogram_torch
@@ -68,24 +68,27 @@ def test_2_paridad_pytorch_ort_logmel_menor_que_0_1() -> None:
     g = torch.Generator().manual_seed(0)
     embedding = torch.nn.functional.normalize(torch.randn(1, cfg.gin_channels, generator=g), dim=1)
     distancias = []
+    # A fixed-voice graph (ADR 0008) has no `embedding` and no `idioma` input: the
+    # exporter prunes them. So torch is called with the full signature and ORT is fed
+    # BY NAME with what the contract declares, exactly like the browser runtime does.
+    nombres = [e["nombre"] for e in CONTRATO["grafos"]["tts"]["entradas"]]
     for idioma, frase in frases:
         _, secuencia = tokenizar(frase, idioma)
         tokens = torch.tensor([secuencia])
+        idiomas = CONTRATO["idiomas"]
         entradas = (
             tokens,
             torch.tensor([tokens.shape[1]]),
             embedding,
-            torch.tensor([CONTRATO["idiomas"].index(idioma)]),
+            torch.tensor([idiomas.index(idioma) if idioma in idiomas else 0]),
             torch.randn(1, cfg.inter_channels, tokens.shape[1] * 12, generator=g),
             torch.randn(1, 2, tokens.shape[1], generator=g),
             torch.tensor([0.667, 0.8, 1.0]),
         )
+        por_nombre = dict(zip(ENTRADAS_COMPLETAS, entradas, strict=True))
         with torch.no_grad():
             onda_torch = modelo.inferir(*entradas)
-        nombres = [e["nombre"] for e in CONTRATO["grafos"]["tts"]["entradas"]]
-        (onda_ort,) = sesion.run(
-            None, {n: e.numpy() for n, e in zip(nombres, entradas, strict=True)}
-        )
+        (onda_ort,) = sesion.run(None, {n: por_nombre[n].numpy() for n in nombres})
         assert onda_ort.shape == tuple(onda_torch.shape), frase
 
         def logmel(onda):

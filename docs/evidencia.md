@@ -467,6 +467,31 @@ frases eso no decide nada y no se va a fingir que sí. Lo que sí está medido e
 duración, que es lo que se oye como "va lento y raro". Arreglado además el arranque en frío del
 generador de ruido de JS (con semilla pequeña su primer valor era de 4 sigma).
 
+## 2026-09-05 · ¿Se puede puentear el espacio de locutor sin entrenar? — NEGATIVO, CIERRA EL ATAJO
+
+**Montaje.** El modelo portado ya clona, pero en el espacio `emb_g` de coqui (109 filas). Para
+108 locutores de VCTK tenemos las dos representaciones: la fila de coqui y la media de los
+embeddings de WeSpeaker que calculó `preparar`. Si la relación fuera aproximadamente lineal, una
+regresión ridge de 256×256 daría clonación **sin entrenar nada**. Validación cruzada de 5
+pliegues, con los locutores de prueba fuera del ajuste.
+
+| Predicción | Coseno fuera de muestra |
+|---|---|
+| Predecir siempre la media de `emb_g` (línea base tonta) | **0,134** |
+| Ridge α = 0,01 | 0,005 |
+| Ridge α = 1 | 0,026 |
+| Ridge α = 100 | 0,066 |
+
+**Resultado.** Ninguna regularización llega siquiera a la línea base. Con 108 puntos en 256
+dimensiones el sistema está sin determinar, y sobre todo no hay señal lineal que extraer.
+
+**Consecuencia.** No hay atajo: **enseñar al modelo a leer el embedding es entrenamiento**, y en
+esta GPU eso son días. Eso obliga a elegir enfoque en vez de seguir empujando, que es de donde
+sale la conversación del 5-sep con Marcos. Lo que sí existe, con licencia MIT y ya entrenado:
+MeloTTS español (208 MB fp32) para la voz y el conversor de OpenVoice v2 (131 MB fp32) para el
+timbre, ambos **no autorregresivos** y por tanto exportables al navegador. Es clonación como
+postproceso en vez de clonación aprendida, y no cuesta un solo paso de entrenamiento.
+
 ---
 
 ## Mediciones pendientes que deciden algo

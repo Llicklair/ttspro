@@ -1,13 +1,13 @@
 {
  "precision": "fp32",
  "proveedor": "wasm",
- "segundosTotales": 31.574,
+ "segundosTotales": 31.485,
  "pendientes": 0,
  "reproducidos": 18,
  "descartadosViejos": 0,
  "descartadosLlenos": 0,
  "descartadosRepetidos": 1,
- "esperaMediaMs": 12617.607222219309,
- "sintesisMediaMs": 390.311944451597,
- "velocidad": 4.2783772370057545
+ "esperaMediaMs": 12554.848888893923,
+ "sintesisMediaMs": 396.3049999939071,
+ "velocidad": 4.213678198606731
 }

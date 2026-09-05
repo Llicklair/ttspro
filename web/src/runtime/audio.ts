@@ -81,13 +81,33 @@ export async function grabarPCM(
 }
 
 let contexto: AudioContext | null = null;
+let ganancia: GainNode | null = null;
+let volumenMaestro = 1;
+
+/** Master volume, 0..1, applied to everything `reproducir` plays from now on. */
+export function ponerVolumen(v: number): void {
+  volumenMaestro = Math.min(1, Math.max(0, v));
+  if (ganancia) ganancia.gain.value = volumenMaestro;
+}
+export function volumen(): number {
+  return volumenMaestro;
+}
+
 export function reproducir(onda: Float32Array, sampleRate: number): AudioBufferSourceNode {
-  contexto ??= new AudioContext();
+  if (!contexto) {
+    contexto = new AudioContext();
+    ganancia = contexto.createGain();
+    ganancia.gain.value = volumenMaestro;
+    ganancia.connect(contexto.destination);
+  }
+  // Autoplay policy: a context created before any click starts suspended and
+  // stays silent. Resuming here is a no-op once it is running.
+  if (contexto.state === "suspended") void contexto.resume();
   const buffer = contexto.createBuffer(1, onda.length, sampleRate);
   buffer.copyToChannel(new Float32Array(onda), 0); // copy: SharedArrayBuffer-backed views are rejected
   const fuente = contexto.createBufferSource();
   fuente.buffer = buffer;
-  fuente.connect(contexto.destination);
+  fuente.connect(ganancia as GainNode);
   fuente.start();
   return fuente;
 }

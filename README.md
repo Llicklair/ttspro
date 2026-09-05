@@ -87,6 +87,7 @@ tts.elegirVoz("cof_02484");                       // or a preset; tts.voces list
 tts.elegirVoz(null);                              // or the base voice, no converter, fastest
 
 const r = await tts.predict("hola a todos");      // { onda, sampleRate, ms, fonemas, wav() }
+tts.volumen = 0.5;                                // master volume, 0..1
 await tts.reproducir(r);
 
 // a stream: any iterable, async iterable or ReadableStream of strings or { usuario, texto }
@@ -97,6 +98,14 @@ The stream form runs through the same queue as the demo: it synthesizes ahead of
 drops what has waited too long. `chat: true` applies the chat normalizer. The page has to come
 over HTTP (fetch does not work from `file://`), and multithreaded wasm needs the COOP/COEP headers,
 which `npm run servir` sends.
+
+Embedding it in another site (a Rails app with importmap, say): copy the whole `dist/lib` folder
+**as is** to a public path that is not fingerprinted, `public/tts_pro/` for instance. ORT finds its
+wasm next to `ttspro.js` through `import.meta.url`, so an asset pipeline that renames the file
+breaks that lookup. Then `pin "ttspro", to: "/tts_pro/ttspro.js"` and
+`TTS.cargar({ modelos: "/tts_pro/models/", espeak: "/tts_pro/espeak-ng.wasm" })`. Without COOP/COEP
+on that site ORT runs wasm on one thread (slower, still correct); adding those two headers to a site
+that embeds third-party players or images breaks them, so measure before choosing.
 
 ### Feeding it from your own app (Rails, streex, anything)
 

@@ -21,7 +21,13 @@
 
 import { nombreLegible, normalizarChat } from "../frontend/chat.ts";
 import { configurarEspeak } from "../frontend/fonemas.ts";
-import { aWav, decodificar, reproducir as reproducirOnda } from "../runtime/audio.ts";
+import {
+  aWav,
+  decodificar,
+  ponerVolumen,
+  reproducir as reproducirOnda,
+  volumen,
+} from "../runtime/audio.ts";
 import { Cola, type Estadisticas, type Mensaje } from "../runtime/cola.ts";
 import type { Contrato } from "../runtime/contrato.ts";
 import { convertir, vectorVoz } from "../runtime/conversor.ts";
@@ -150,6 +156,14 @@ export class TTS {
   /** Languages the base voice speaks. */
   get idiomas(): string[] {
     return this.contrato.idiomas;
+  }
+
+  /** Master volume for `reproducir`/`leer`, 0..1. Applies to what plays from now on. */
+  get volumen(): number {
+    return volumen();
+  }
+  set volumen(v: number) {
+    ponerVolumen(v);
   }
 
   /** Sample rate of every result. */

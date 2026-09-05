@@ -77,9 +77,20 @@ fast and clear way to give people different voices.
 | es_AR-daniela-high | high | 57.6 MB | 210 |
 
 Packs are served from GitHub Pages (`https://llicklair.github.io/ttspro/`); a release cannot host
-them because its assets send no CORS header. Point the page elsewhere with `?voces=<url>`, the
-library with `TTS.cargar({ vocesBase })`, and build your own with `uv run python -m
-ttspro.export.paquete --todas es`.
+them because its assets send no CORS header. The page's *origen de voces* field, `?voces=<url>`
+and `TTS.cargar({ vocesBase })` point at any other host, and building your own is
+`uv run python -m ttspro.export.paquete --todas es`.
+
+**Hugging Face.** Any user can download the packs from a Hugging Face repo, which serves them
+with the right CORS headers: publish yours with
+
+```bash
+uv run hf auth login                                        # once, token from huggingface.co/settings/tokens
+uv run python -m ttspro.export.publicar --repo <usuario>/ttspro-voces
+```
+
+and use `https://huggingface.co/<usuario>/ttspro-voces/resolve/main/` as the origin, in the page
+field or in `TTS.cargar({ vocesBase })`. The same flat files work on both hosts.
 
 **Hardware.** The page detects WebGPU, the adapter, `shader-f16`, threads and isolation, states
 the rule's recommendation (WebGPU + f16 → fp16 on the GPU; WebGPU without f16, such as a GTX 1070

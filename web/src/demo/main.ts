@@ -696,14 +696,25 @@ $("calibrar").addEventListener("click", async () => {
 // ---------------------------------------------------------------- base voice packs (ADR 0011)
 
 const selectorBase = $("vozBase") as HTMLSelectElement;
-// `?voces=<url>` points the page at another pack host (a local folder in the e2e).
-const urlVoces = new URLSearchParams(location.search).get("voces") ?? URL_VOCES;
+// Where the packs come from, in order: `?voces=<url>` (the e2e serves a local
+// folder), what the visitor typed last time, the project's default. Any static
+// host with CORS works: a Hugging Face repo is
+// `https://huggingface.co/<usuario>/<repo>/resolve/main/`.
+const origenVoces = $("origenVoces") as HTMLInputElement;
+let urlVoces =
+  new URLSearchParams(location.search).get("voces") ??
+  localStorage.getItem("ttspro-voces") ??
+  URL_VOCES;
+origenVoces.value = urlVoces;
 
 async function pintarIndice(): Promise<void> {
+  for (const o of Array.from(selectorBase.options)) if (o.value !== "local") o.remove();
+  indicePaquetes = {};
   try {
     indicePaquetes = await cargarIndice(urlVoces);
   } catch (err) {
-    $("infoVozBase").textContent = `sin índice de voces (${String(err).slice(0, 60)})`;
+    $("infoVozBase").textContent =
+      `sin índice de voces en ${urlVoces} (${String(err).slice(0, 60)})`;
     return;
   }
   for (const m of Object.values(indicePaquetes)) {
@@ -715,6 +726,13 @@ async function pintarIndice(): Promise<void> {
   $("infoVozBase").textContent = `${Object.keys(indicePaquetes).length} voces base descargables`;
 }
 void pintarIndice();
+origenVoces.addEventListener("change", () => {
+  urlVoces = origenVoces.value.trim().replace(/\/?$/, "/");
+  origenVoces.value = urlVoces;
+  localStorage.setItem("ttspro-voces", urlVoces);
+  log(`origen de voces: ${urlVoces}`);
+  void pintarIndice();
+});
 
 async function descargarBase(clave: string): Promise<void> {
   if (bases.has(clave)) return;

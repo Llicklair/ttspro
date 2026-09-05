@@ -341,6 +341,17 @@ test("paquetes de voz: la página descarga una voz base y habla con ella", async
     );
     const hardware = await page.locator("#hardware").innerText();
     expect(hardware).toContain("recomendado");
+    // the origin field shows where the packs come from, and changing it reloads the index
+    await expect(page.locator("#origenVoces")).toHaveValue(`http://127.0.0.1:${puerto}/`);
+    await page.fill("#origenVoces", `http://127.0.0.1:${puerto}`);
+    await page.locator("#origenVoces").dispatchEvent("change");
+    await page.waitForFunction(
+      () => document.querySelectorAll("#vozBase option").length > 1,
+      null,
+      {
+        timeout: 30_000,
+      },
+    );
     await page.selectOption("#vozBase", "es_ES-carlfm-x_low");
     await page.click("#descargarVozBase");
     await expect(page.locator("#infoVozBase")).toContainText("carlfm", { timeout: 120_000 });

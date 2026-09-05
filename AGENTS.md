@@ -35,6 +35,7 @@ uv run python -m ttspro.export.conversor                        # models/voz.onn
 uv run python -m ttspro.train.evaluar --checkpoint runs/X/G_NNNN.pt --cache cache/*  # WER y SECS
 uv run python -m ttspro.export.voces --cache cache/openslr_es cache/vctk  # presets del demo
 uv run python -m ttspro.export.paquete --todas es   # paquetes de voz base (ADR 0011) en paquetes/; se publican en la rama `voces` (GitHub Pages)
+uv run python -m ttspro.export.publicar --repo <usuario>/ttspro-voces   # sube paquetes/ a Hugging Face (antes: uv run hf auth login)
 ```
 
 El afinado real lleva la consistencia de locutor (`--scl 9`), que es lo que convierte "una voz"

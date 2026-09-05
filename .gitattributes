@@ -1,2 +1,10 @@
-# cmd re-reads a batch file by byte offset: it needs CRLF whatever the checkout settings are.
+# LF everywhere, on every OS: the pre-commit is a sh script and the fixtures
+# are compared byte-for-byte between Python and node.
+* text=auto eol=lf
+*.png binary
+*.wav binary
+*.flac binary
+*.onnx binary
+*.pt binary
+# Except batch files: cmd re-reads them by byte offset and does not tolerate LF.
 *.bat text eol=crlf

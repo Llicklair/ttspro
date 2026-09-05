@@ -54,7 +54,7 @@
       <textarea id="texto">Hello, how are you today? Text to speech in the browser, with voice cloning from a single recording.</textarea>
       <div>
         <label>noise <input id="noise" type="range" min="0" max="1.5" step="0.01" value="0.667" /> <span id="noise_v"></span></label>
-        <label>noise_w <input id="noise_w" type="range" min="0" max="1.5" step="0.01" value="0.8" /> <span id="noise_w_v"></span></label>
+        <label title="ruido del predictor de duración; 0.8 es el defecto de VITS y con este modelo dispara la duración">noise_w <input id="noise_w" type="range" min="0" max="1.5" step="0.01" value="0.5" /> <span id="noise_w_v"></span></label>
         <label>length <input id="length" type="range" min="0.5" max="2" step="0.01" value="1.0" /> <span id="length_v"></span></label>
         <label>semilla <input id="semilla" type="number" value="0" style="width:5rem" /></label>
       </div>

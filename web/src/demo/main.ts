@@ -57,12 +57,15 @@ async function cargarModelos(): Promise<void> {
     encoder = e;
     tts = t;
     const mb = ((e.bytes + t.bytes) / 1e6).toFixed(1);
-    estado.textContent = `listo · encoder ${e.proveedor} ${e.ms_carga.toFixed(0)} ms · tts ${t.proveedor} ${t.ms_carga.toFixed(0)} ms · ${mb} MB de modelos · ${hilos()} hilo(s) wasm · crossOriginIsolated=${crossOriginIsolated}`;
-    log(`modelos cargados: ${estado.textContent}`);
+    const resumen = `encoder ${e.proveedor} ${e.ms_carga.toFixed(0)} ms · tts ${t.proveedor} ${t.ms_carga.toFixed(0)} ms · ${mb} MB de modelos · ${hilos()} hilo(s) wasm · crossOriginIsolated=${crossOriginIsolated}`;
+    estado.textContent = `preparando fonemizador y voces… (${resumen})`;
     log(`espeak-ng: ${await versionEspeak()}`);
     await cargarPresets();
     for (const id of ["fichero", "grabar", "sintetizar", "preset"])
       ($(id) as HTMLButtonElement).disabled = false;
+    // "listo" only when it IS ready: the presets and the phonemizer included.
+    estado.textContent = `listo · ${resumen}`;
+    log(`modelos cargados: ${estado.textContent}`);
   } catch (err) {
     estado.textContent = `error: ${String(err)}`;
     log(String(err));

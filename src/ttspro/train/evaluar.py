@@ -48,7 +48,15 @@ def normalizar_para_wer(texto: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9ñ ]+", " ", texto).split())
 
 
-def sintetizar(modelo, cfg: ConfigSintetizador, tokens, embedding, idioma: int, semilla: int):
+def sintetizar(
+    modelo,
+    cfg: ConfigSintetizador,
+    tokens,
+    embedding,
+    idioma: int,
+    semilla: int,
+    noise_w: float = 0.4,
+):
     g = torch.Generator().manual_seed(semilla)
     n = tokens.shape[1]
     with torch.no_grad():
@@ -59,7 +67,7 @@ def sintetizar(modelo, cfg: ConfigSintetizador, tokens, embedding, idioma: int, 
             torch.tensor([idioma]),
             torch.randn(1, cfg.inter_channels, n * 12, generator=g),
             torch.randn(1, 2, n, generator=g),
-            torch.tensor([0.667, 0.8, 1.0]),
+            torch.tensor([0.667, noise_w, 1.0]),
         )
     return onda[0, 0]
 
@@ -73,6 +81,13 @@ def main() -> None:
     ap.add_argument("--whisper", default="small")
     ap.add_argument("--salida", type=Path, default=None, help="carpeta donde dejar los wav")
     ap.add_argument("--semilla", type=int, default=0)
+    ap.add_argument(
+        "--noise-w",
+        type=float,
+        default=0.4,
+        help="ruido del predictor de duración; 0.8 es el defecto de VITS y con un SDP poco "
+        "entrenado dispara la duración (evidencia 2026-09-05)",
+    )
     args = ap.parse_args()
 
     t0 = time.time()
@@ -118,6 +133,7 @@ def main() -> None:
                     emb_ref,
                     idiomas[idioma],
                     args.semilla,
+                    args.noise_w,
                 )
                 onda16 = torchaudio.functional.resample(onda, cfg.sample_rate, 16000).numpy()
                 hipotesis = asr.transcribe(onda16, language=IDIOMA_WHISPER[idioma], fp16=False)[
@@ -158,6 +174,7 @@ def main() -> None:
         "checkpoint": str(args.checkpoint),
         "frases": len(filas),
         "segundos": round(time.time() - t0),
+        "noise_w": args.noise_w,
     }
     for idioma in sorted({f["idioma"] for f in filas}):
         sub = [f for f in filas if f["idioma"] == idioma]

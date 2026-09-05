@@ -121,6 +121,9 @@ export function ruidoNormal(n: number, semilla = 0): Float32Array {
     estado ^= estado << 5;
     return ((estado >>> 0) + 1) / 4294967297;
   };
+  // Warm up: from a small seed the first uniforms are tiny and Box-Muller turns
+  // them into 4-sigma outliers (measured 2026-09-05: first value 4.16 with seed 2).
+  for (let k = 0; k < 16; k++) uniforme();
   for (let i = 0; i < n; i += 2) {
     const u1 = uniforme();
     const u2 = uniforme();

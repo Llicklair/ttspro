@@ -437,6 +437,36 @@ ha desplazado hacia el español).
 +2,4 % de tiempo por paso (2,525 → 2,586 s) y +0,58 GB de VRAM (3,87 → 4,45), o sea nada.
 Al arrancar, la SCL mide 0,62 de coseno entre el segmento generado y el real.
 
+## 2026-09-05 · El demo hablaba el doble de lento: no era el ruido de JS, es el predictor de duración — AJUSTE, NO ARREGLO
+
+**Montaje.** El demo generaba 12,67 s para una frase española de ~4,5 s (155 tokens) y 13,1 s
+para una inglesa de 10 palabras, mientras el mismo checkpoint en PyTorch daba 6,1 s. Cadena de
+sospechosos, descartados uno a uno con medidas:
+
+| Sospechoso | Comprobación | Veredicto |
+|---|---|---|
+| El navegador sirve pesos viejos | sha256 de `models/tts.onnx` y `web/public/models/tts.onnx` | idénticos (aunque **sí** había un bug: `preparar-estaticos` comparaba solo el tamaño y un reexport pesa igual; arreglado) |
+| El locutor cambia la velocidad | seis presets españoles × tres semillas en PyTorch | 3,17–3,38 frames/token, no explica un 2× |
+| Mi ruido de JS no es N(0,1) | 20 000 muestras: media, desviación, autocorrelación 1–4, colas | indistinguible de `torch.randn` |
+| **El sorteo del ruido** | el mismo ONNX con el ruido exacto de JS y con el de torch | **12,67 s vs 5,60 s** |
+
+Es decir: el ruido es correcto y el grafo también; lo que pasa es que el **predictor estocástico de
+duración amplifica cualquier sorteo**. Veinte semillas sobre la misma frase:
+
+| `noise_w` | mín | mediana | máx | desviación |
+|---|---|---|---|---|
+| 0,8 (defecto de VITS) | 5,38 s | 6,77 s | **10,08 s** | 1,05 |
+| 0,4 | 4,50 s | 5,22 s | 6,01 s | 0,33 |
+| 0,0 (determinista) | 4,64 s | 4,64 s | 4,64 s | 0 |
+
+**Consecuencia.** El demo baja su `noise_w` por defecto a 0,5 y el deslizador sigue ahí. Es un
+**ajuste, no un arreglo**: con 2 000 pasos el SDP todavía no ha aprendido a poner la varianza
+donde toca, y lo que lo corrige es entrenar. Con las mismas frases y locutores, bajar a 0,4 mejora
+la **mediana** del WER español (0,225 → 0,167) y empeora la **media** (0,272 → 0,325): con diez
+frases eso no decide nada y no se va a fingir que sí. Lo que sí está medido es la dispersión de la
+duración, que es lo que se oye como "va lento y raro". Arreglado además el arranque en frío del
+generador de ruido de JS (con semilla pequeña su primer valor era de 4 sigma).
+
 ---
 
 ## Mediciones pendientes que deciden algo

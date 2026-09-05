@@ -343,6 +343,12 @@ test("paquetes de voz: la página descarga una voz base y habla con ella", async
     expect(hardware).toContain("recomendado");
     // the origin field shows where the packs come from, and changing it reloads the index
     await expect(page.locator("#origenVoces")).toHaveValue(`http://127.0.0.1:${puerto}/`);
+    // the Hugging Face button builds the resolve URL from "usuario/repo" (no network needed)
+    await page.fill("#repoHF", "alguien/sus-voces");
+    await page.click("#usarHF");
+    await expect(page.locator("#origenVoces")).toHaveValue(
+      "https://huggingface.co/alguien/sus-voces/resolve/main/",
+    );
     await page.fill("#origenVoces", `http://127.0.0.1:${puerto}`);
     await page.locator("#origenVoces").dispatchEvent("change");
     await page.waitForFunction(

@@ -707,32 +707,60 @@ let urlVoces =
   URL_VOCES;
 origenVoces.value = urlVoces;
 
+// Only the LAST origin asked for gets to paint: a slow failure from a previous
+// origin must not overwrite the index of the current one.
+let peticionIndice = 0;
 async function pintarIndice(): Promise<void> {
+  const mia = ++peticionIndice;
+  const elegida = selectorBase.value;
   for (const o of Array.from(selectorBase.options)) if (o.value !== "local") o.remove();
   indicePaquetes = {};
+  let indice: Record<string, MetaPaquete>;
   try {
-    indicePaquetes = await cargarIndice(urlVoces);
+    indice = await cargarIndice(urlVoces);
   } catch (err) {
+    if (mia !== peticionIndice) return;
     $("infoVozBase").textContent =
       `sin índice de voces en ${urlVoces} (${String(err).slice(0, 60)})`;
     return;
   }
+  if (mia !== peticionIndice) return;
+  indicePaquetes = indice;
   for (const m of Object.values(indicePaquetes)) {
     const o = document.createElement("option");
     o.value = m.clave;
     o.textContent = `${m.nombre} · ${m.calidad} · ${m.MB.fp16} MB`;
     selectorBase.appendChild(o);
   }
+  if (elegida in indicePaquetes) selectorBase.value = elegida;
   $("infoVozBase").textContent = `${Object.keys(indicePaquetes).length} voces base descargables`;
 }
 void pintarIndice();
-origenVoces.addEventListener("change", () => {
-  urlVoces = origenVoces.value.trim().replace(/\/?$/, "/");
+function cambiarOrigen(url: string): void {
+  const nueva = url.trim().replace(/\/?$/, "/");
+  // the input fires `change` again on blur when its value was set by code: same origin, nothing to do
+  if (nueva === urlVoces) return;
+  urlVoces = nueva;
   origenVoces.value = urlVoces;
   localStorage.setItem("ttspro-voces", urlVoces);
   log(`origen de voces: ${urlVoces}`);
   void pintarIndice();
+}
+origenVoces.addEventListener("change", () => cambiarOrigen(origenVoces.value));
+// One click instead of a URL: a Hugging Face repo is `<usuario>/<repo>` and the
+// files hang from `resolve/main/`; GitHub Pages is the project's default.
+$("usarHF").addEventListener("click", () => {
+  const repo = ($("repoHF") as HTMLInputElement).value
+    .trim()
+    .replace(/^https?:\/\/huggingface\.co\//, "")
+    .replace(/\/+$/, "");
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    log("repo de Hugging Face: escribe usuario/nombre");
+    return;
+  }
+  cambiarOrigen(`https://huggingface.co/${repo}/resolve/main/`);
 });
+$("usarPages").addEventListener("click", () => cambiarOrigen(URL_VOCES));
 
 async function descargarBase(clave: string): Promise<void> {
   if (bases.has(clave)) return;

@@ -282,12 +282,14 @@ $("grabar").addEventListener("click", async () => {
 
 // ---------------------------------------------------------------- speech
 
-async function hablar(conConversor: boolean): Promise<void> {
+async function hablar(pedirConversor: boolean): Promise<void> {
   if (!tts || !voces) return;
-  if (conConversor && !vozDestino) {
-    log("elige un preset o clona una voz antes de sintetizar");
-    pastilla("audio", "falta la voz", "error");
-    return;
+  // "sintetizar" without a target voice (no preset, nothing cloned) is not an error:
+  // the base voice speaks on its own. A downloaded base voice IS a voice; the
+  // converter only repaints the timbre onto a preset or a clone.
+  const conConversor = pedirConversor && vozDestino !== null;
+  if (pedirConversor && !conConversor) {
+    log(`sin voz destino (preset o clonada): habla la voz base ${hablanteActual().meta.nombre}`);
   }
   const botones = ["sintetizar", "sinConvertir"].map((id) => $(id) as HTMLButtonElement);
   for (const b of botones) b.disabled = true;
@@ -822,7 +824,8 @@ async function descargarBase(clave: string): Promise<void> {
 selectorBase.addEventListener("change", () => {
   if (bases.has(selectorBase.value)) {
     baseActual = selectorBase.value;
-    $("infoVozBase").textContent = `voz base: ${hablanteActual().meta.nombre}`;
+    $("infoVozBase").textContent =
+      `voz base: ${hablanteActual().meta.nombre} · pulsa «sintetizar» o «solo voz base»`;
   } else {
     $("infoVozBase").textContent = "no descargada: pulsa «descargar y usar»";
   }
@@ -839,7 +842,8 @@ $("descargarVozBase").addEventListener("click", async () => {
   try {
     await descargarBase(clave);
     baseActual = clave;
-    $("infoVozBase").textContent = `voz base: ${hablanteActual().meta.nombre}`;
+    $("infoVozBase").textContent =
+      `voz base: ${hablanteActual().meta.nombre} · pulsa «sintetizar» o «solo voz base»`;
   } catch (err) {
     log(`voz base ${clave}: ${String(err)}`);
     $("infoVozBase").textContent = `error con ${clave}: ${String(err).slice(0, 120)}`;

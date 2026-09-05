@@ -17,9 +17,17 @@ train = [
     "torchaudio>=2.4",
     "soundfile>=0.12",
 ]
+# Everything `ttspro.export.modelos` needs to rebuild models/ from public weights:
+# torch to port them, onnx/onnxruntime to export and check, huggingface_hub to
+# fetch them, soundfile for the base-voice measurement. Self-sufficient on purpose:
+# a fresh clone runs `uv sync --extra export` and gets the whole model pipeline.
 export = [
+    "torch>=2.4",
+    "torchaudio>=2.4",
     "onnx>=1.16",
     "onnxruntime>=1.19",
+    "huggingface_hub>=0.24",
+    "soundfile>=0.12",
 ]
 # Objective evaluation of the done criterion (SCOPE.md): WER with Whisper,
 # speaker similarity with the exported encoder.

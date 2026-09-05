@@ -1,6 +1,6 @@
 # 9. Publicar en GitHub: qué sale, con qué licencia y sin pesos
 
-**Estado:** propuesta · **Fecha:** 2026-09-05 · **Decide:** Marcos · **Toca:** [SCOPE.md](../../SCOPE.md), [ADR 0006](0006-uso-no-comercial-y-xtts-como-maestro.md)
+**Estado:** aceptada · **Fecha:** 2026-09-05 · **Decide:** Marcos · **Toca:** [SCOPE.md](../../SCOPE.md), [ADR 0006](0006-uso-no-comercial-y-xtts-como-maestro.md)
 
 ## Contexto
 
@@ -48,7 +48,19 @@ que escribió SCOPE: nadie recibe de aquí un modelo listo para clonar, recibe u
 que ya son públicos. El día que se publique un peso, o se sirva la demo online, esta decisión se
 reabre con datos, no con opinión.
 
-### Lo que queda por decidir (lo firma Marcos)
+### Decidido por Marcos el 2026-09-05
+
+*«La licencia no me importa, es de libre uso, que el repo sea público.»* Eso es la primera opción
+de abajo: **MIT para el código propio** (fichero LICENSE) con THIRD_PARTY.md diciendo que la build
+del navegador carga espeak-ng GPL-3.0. El repo es público en GitHub. La demo sigue siendo local:
+no se sirve online, así que ni el watermarking ni la política de abuso se abren todavía. El uso no
+comercial del ADR 0006 se queda como está: la restricción era nuestra, y con MIT deja de serlo para
+el código; el model card lo dice.
+
+Para que «otro usuario lo utilice» no sea un README sino un doble clic, `instalar.bat` instala uv,
+Node y eSpeak NG con winget si faltan, crea el entorno, reconstruye los pesos y prepara la demo.
+
+### Lo que había que decidir (tal como se planteó)
 
 1. **Licencia del repo.** Dos opciones coherentes:
    - **MIT para el código propio**, con THIRD_PARTY.md diciendo que la build incluye espeak-ng

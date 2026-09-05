@@ -667,6 +667,12 @@ encoder.
 | `voz.onnx` | 7,5 MB | 3,7 MB | sí |
 | `speaker_encoder.onnx` | 27,4 MB | 14,2 MB | sí |
 
+Repetido en un **entorno limpio** (`.venv-fresh`, solo `--extra dev --extra export`, 40 paquetes) por
+`instalar.bat --sin-demo`: port 9,9 s, export del TTS 20,7 s, export del conversor 25,8 s. Menos de
+un minuto de CPU una vez descargados los pesos. Antes de esa prueba el extra `export` no llevaba
+torch ni huggingface_hub: el README prometía un camino que a un usuario nuevo le habría fallado en
+el segundo comando. Ahora `export` es autosuficiente.
+
 Un solo comando, sin GPU y sin un byte de corpus. Lo único que no se regenera así es
 `models/voces.json` (los 20 presets se midieron sobre ~12 GB de VCTK y OpenSLR es), y por eso pasa
 a viajar en git: 115 KB de vectores, ningún audio.

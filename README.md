@@ -31,6 +31,10 @@ browser can never disagree with the checkpoint about what a token means.
 
 ## Run it
 
+On Windows, double-click **`instalar.bat`** (or run `instalar.bat --sin-demo` to install without
+starting the demo). It installs uv, Node.js and eSpeak NG through winget if they are missing, then
+does exactly this:
+
 ```bash
 uv sync --extra dev --extra export          # torch comes from the cu126 index pinned in pyproject
 uv run python -m ttspro.export.modelos      # downloads public weights, writes models/*.onnx
@@ -91,10 +95,11 @@ discovered.
 
 ## Licence
 
-The weights come from MIT-licensed projects and the preset vectors from CC BY / CC BY-SA corpora;
-the phonemizer, espeak-ng, is GPL-3.0-or-later and the browser app loads it.
+The code is **MIT** ([LICENSE](LICENSE)). The weights come from MIT-licensed projects and the
+preset vectors from CC BY / CC BY-SA corpora; the phonemizer, espeak-ng, is GPL-3.0-or-later and
+the browser app loads it, so a deployed build of `web/` carries that obligation.
 [THIRD_PARTY.md](THIRD_PARTY.md) lists every component with its terms, and
-[ADR 0009](docs/adr/0009-publicacion-en-github.md) is where the repo's own licence is decided.
+[ADR 0009](docs/adr/0009-publicacion-en-github.md) records why it is set up this way.
 
 Decision documents (`SCOPE.md`, `ARCHITECTURE.md`, `AGENTS.md`, ADRs, evidence) are in Spanish by
 design; everything publishable is in English.

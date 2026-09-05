@@ -492,6 +492,48 @@ MeloTTS español (208 MB fp32) para la voz y el conversor de OpenVoice v2 (131 M
 timbre, ambos **no autorregresivos** y por tanto exportables al navegador. Es clonación como
 postproceso en vez de clonación aprendida, y no cuesta un solo paso de entrenamiento.
 
+## 2026-09-05 · El conversor de OpenVoice v2 sobre nuestros propios bloques — CLONA SIN ENTRENAR, DECIDE EL ADR 0007
+
+**Montaje.** `myshell-ai/OpenVoiceV2` (MIT) reimplementado en `ttspro.model.conversor` con los
+módulos que ya existían. Configuración: 22 050 Hz, n_fft 1024, hop 256, `gin_channels` 256,
+`zero_g` verdadero (toda la identidad vive en el flow). Locutores de OpenSLR es, medido con el
+mismo encoder de WeSpeaker que usa el criterio 4.
+
+**El port es exacto:** **486 de 486 tensores** cargados, ninguno sin destino, ninguno sin cargar.
+La prueba independiente es la conversión identidad (origen = destino): devuelve el original con
+coseno **0,783**, igual que el techo de dos grabaciones reales del mismo locutor (0,779).
+
+| Audio real de A convertido a la voz de B | Coseno |
+|---|---|
+| Original frente a A (techo de partida) | 0,785 |
+| **Convertido frente a B (destino)** | **0,424** con 3 referencias · **0,528** con 5 |
+| Convertido frente a A (origen) | 0,257 (bajó desde 0,785) |
+| Suelo (dos locutores distintos) | 0,137 |
+| **WER del audio convertido** | **0,028** |
+
+El parámetro `tau` casi no influye (0,499–0,528 entre 0,05 y 1,0). Lo que sí importa es cuánta
+referencia hay, y **satura pronto**: 0,347 con un audio de 6,5 s, 0,388 con cinco (34 s), y de ahí
+no sube con 82 s.
+
+**La cadena completa del producto** (texto → nuestro TTS en voz base fija → conversor), seis
+locutores destino:
+
+| | Coseno con el destino |
+|---|---|
+| Solo TTS | 0,165 (suelo 0,120) |
+| **TTS + conversor** | **0,384** |
+| Techo (dos audios reales del destino) | 0,771 |
+
+WER: 0,371 solo TTS y 0,443 con conversor de media, pero **0,318 → 0,261 en mediana**: el
+conversor no se come las palabras, y la media la mueve un caso suelto.
+
+**Consecuencia.** Clonación funcionando **sin un solo paso de entrenamiento**, y mejor que los
+2 000 pasos de la fase A (0,335). El cuello de botella pasa a ser el TTS base, que es donde
+existen modelos ya entrenados con licencia MIT (Piper español). Queda escrito en el
+[ADR 0007](adr/0007-clonacion-como-postproceso.md). **Lo que esto no es:** una copia de la voz.
+0,38–0,53 frente a un techo de 0,78 es un parecido reconocible, no una suplantación, y el criterio
+4 (≥ 0,55 y ≥ 0,75 × techo) todavía no pasa.
+
 ---
 
 ## Mediciones pendientes que deciden algo

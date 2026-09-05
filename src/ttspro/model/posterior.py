@@ -1,5 +1,9 @@
-"""Posterior encoder: linear spectrogram -> latent z. Training only; never in the
-exported graph (the flow runs in reverse from the prior at inference)."""
+"""Posterior encoder: linear spectrogram -> latent z.
+
+In the synthesizer it is training-only (at inference the flow runs in reverse
+from the prior). In the voice converter (ADR 0007) it IS in the exported graph,
+so the sampling noise can come in as an argument (rule 5) and be scaled by
+`tau`."""
 
 from __future__ import annotations
 
@@ -28,11 +32,20 @@ class PosteriorEncoder(nn.Module):
         )
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
 
-    def forward(self, x: torch.Tensor, x_lengths: torch.Tensor, g: torch.Tensor | None = None):
+    def forward(
+        self,
+        x: torch.Tensor,
+        x_lengths: torch.Tensor,
+        g: torch.Tensor | None = None,
+        ruido: torch.Tensor | None = None,
+        tau: float | torch.Tensor = 1.0,
+    ):
         x_mask = sequence_mask(x_lengths, x.size(2)).unsqueeze(1).to(x.dtype)
         x = self.pre(x) * x_mask
         x = self.enc(x, x_mask, g=g)
         stats = self.proj(x) * x_mask
         m, logs = torch.split(stats, self.out_channels, dim=1)
-        z = (m + torch.randn_like(m) * torch.exp(logs)) * x_mask
+        if ruido is None:
+            ruido = torch.randn_like(m)
+        z = (m + ruido * torch.exp(logs) * tau) * x_mask
         return z, m, logs, x_mask

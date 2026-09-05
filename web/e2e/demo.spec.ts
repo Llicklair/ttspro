@@ -451,3 +451,46 @@ test("librería: paquetes de voz por URL, cargarVozBase y predict con vozBase", 
     servidor.close();
   }
 });
+
+// ---------------------------------------------------------------- packs from the real host
+//
+// Network-dependent, so opt-in: TTSPRO_VOCES=<url> runs it against a real host
+// (Hugging Face, GitHub Pages). It is the proof that a browser on another origin
+// downloads a pack from there, CORS included.
+
+test("paquetes desde un host real (TTSPRO_VOCES)", async ({ page }) => {
+  const remoto = process.env.TTSPRO_VOCES;
+  test.skip(!remoto, "set TTSPRO_VOCES=<url> to run against a real host");
+  page.on("pageerror", (e) => console.log("pageerror:", e.message));
+  await page.goto(`/?voces=${encodeURIComponent(remoto as string)}`);
+  await page.selectOption("#precision", PRECISION);
+  await page.selectOption("#proveedor", "wasm");
+  await page.click("#cargar");
+  await page.waitForFunction(() => document.querySelectorAll(".voz").length > 0, null, {
+    timeout: 240_000,
+  });
+  await page.waitForFunction(() => document.querySelectorAll("#vozBase option").length > 1, null, {
+    timeout: 60_000,
+  });
+  const t0 = Date.now();
+  await page.selectOption("#vozBase", "es_ES-carlfm-x_low");
+  await page.click("#descargarVozBase");
+  await expect(page.locator("#infoVozBase")).toContainText("carlfm", { timeout: 300_000 });
+  const segundosDescarga = (Date.now() - t0) / 1000;
+  await page.fill("#texto", "Esta voz ha venido de Hugging Face.");
+  await page.click("#sinConvertir");
+  await page.waitForFunction(
+    () => document.getElementById("medidas")?.textContent?.includes("RTF"),
+    null,
+    {
+      timeout: 60_000,
+    },
+  );
+  console.log(
+    JSON.stringify({
+      origen: remoto,
+      segundosDescarga,
+      medidas: await page.locator("#medidas").innerText(),
+    }),
+  );
+});

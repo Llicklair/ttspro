@@ -244,15 +244,15 @@
           <label class="campo">origen de voces
             <input id="origenVoces" type="text" list="origenes" placeholder="https://huggingface.co/usuario/repo/resolve/main/" autocomplete="off" style="min-width:22rem" />
             <datalist id="origenes">
-              <option value="https://llicklair.github.io/ttspro/">GitHub Pages del proyecto</option>
-              <option value="https://huggingface.co/Llicklair/ttspro-voces/resolve/main/">Hugging Face</option>
+              <option value="https://huggingface.co/Llicklair/ttspro-voces/resolve/main/">Hugging Face (por defecto)</option>
+              <option value="https://llicklair.github.io/ttspro/">GitHub Pages del proyecto (espejo)</option>
             </datalist>
           </label>
           <label class="campo">repo de Hugging Face
             <input id="repoHF" type="text" value="Llicklair/ttspro-voces" autocomplete="off" style="min-width:13rem" />
           </label>
           <button id="usarHF" title="descargar las voces desde ese repositorio de Hugging Face">usar Hugging Face</button>
-          <button id="usarPages" title="volver al origen por defecto del proyecto">usar GitHub Pages</button>
+          <button id="usarPages" title="el espejo en GitHub Pages del proyecto">usar GitHub Pages</button>
         </div>
         <div class="fila" style="margin-bottom:.6rem">
           <label class="campo">voz base

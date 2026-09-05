@@ -17,6 +17,7 @@ import { type Proveedor, type Sesion, crearSesion, hilos, soportaF16 } from "../
 import {
   type MetaPaquete,
   URL_VOCES,
+  URL_VOCES_PAGES,
   type VozBase,
   cargarIndice,
   cargarPaquete,
@@ -760,7 +761,7 @@ $("usarHF").addEventListener("click", () => {
   }
   cambiarOrigen(`https://huggingface.co/${repo}/resolve/main/`);
 });
-$("usarPages").addEventListener("click", () => cambiarOrigen(URL_VOCES));
+$("usarPages").addEventListener("click", () => cambiarOrigen(URL_VOCES_PAGES));
 
 async function descargarBase(clave: string): Promise<void> {
   if (bases.has(clave)) return;

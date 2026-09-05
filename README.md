@@ -76,8 +76,9 @@ fast and clear way to give people different voices.
 | es_MX-ald-medium · es_ES-mls_9972-low · es_ES-mls_10246-low · es_MX-ald-x_low | | 11–32 MB | 62–129 |
 | es_AR-daniela-high | high | 57.6 MB | 210 |
 
-Packs are served from GitHub Pages (`https://llicklair.github.io/ttspro/`); a release cannot host
-them because its assets send no CORS header. The page's *origen de voces* field, `?voces=<url>`
+Packs are served from Hugging Face (`https://huggingface.co/Llicklair/ttspro-voces/resolve/main/`),
+with GitHub Pages (`https://llicklair.github.io/ttspro/`) as a mirror; a release cannot host them
+because its assets send no CORS header. The page's *origen de voces* field, `?voces=<url>`
 and `TTS.cargar({ vocesBase })` point at any other host, and building your own is
 `uv run python -m ttspro.export.paquete --todas es`.
 

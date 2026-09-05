@@ -41,9 +41,11 @@ export interface VozBase {
   vozBase: Float32Array;
 }
 
-// GitHub Pages, not the release: release assets send no Access-Control-Allow-Origin
-// and a browser on another origin cannot fetch them (measured, ADR 0011).
-export const URL_VOCES = "https://llicklair.github.io/ttspro/";
+// Hugging Face by default (CORS along its whole redirect chain, measured, ADR 0011);
+// GitHub Pages carries the same files as a mirror. Not the GitHub release: its
+// assets send no Access-Control-Allow-Origin and a browser cannot fetch them.
+export const URL_VOCES = "https://huggingface.co/Llicklair/ttspro-voces/resolve/main/";
+export const URL_VOCES_PAGES = "https://llicklair.github.io/ttspro/";
 
 const conBarra = (url: string) => url.replace(/\/?$/, "/");
 

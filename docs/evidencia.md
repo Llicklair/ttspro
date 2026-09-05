@@ -929,6 +929,27 @@ GTX 1070 de Marcos, lo da el botón de la página; pendiente abajo.
 
 ---
 
+## 2026-09-06 · Los paquetes viven en Hugging Face
+
+**Montaje.** Marcos hizo `hf auth login` y pidió que subiera el repo. `ttspro.export.publicar
+--repo Llicklair/ttspro-voces` creó el repo público, escribió la model card y subió `paquetes/`
+(indice, 8 json, 16 onnx). Comprobado desde fuera con `curl -L -D - -H "Origin: …"` sobre un
+onnx real: cada salto trae `Access-Control-Allow-Origin` con el origen y el CDN final `*`
+(11,0 MB de carlfm fp16). Es el mismo resultado que el sondeo del día 5 sobre `piper-voices`.
+
+**Decisión que sigue:** Hugging Face pasa a ser el **origen por defecto** de `URL_VOCES`, y
+GitHub Pages queda como espejo (`URL_VOCES_PAGES`, botón «usar GitHub Pages»). Los ficheros son
+los mismos en los dos; con la URL cambia todo. La página tiene un campo «repo de Hugging Face» y
+un botón que construye la URL `resolve/main/`: cualquier usuario puede publicar sus paquetes con
+el mismo comando y apuntar la página a su repo.
+
+**Prueba de navegador contra el host real** (`TTSPRO_VOCES=https://huggingface.co/Llicklair/ttspro-voces/resolve/main/`,
+Chromium headless, wasm fp32): índice cargado, carlfm x_low descargada y abierta en **4,5 s**
+(11,0 MB), y la frase «Esta voz ha venido de Hugging Face» sintetizada en 268 ms para 1,24 s de
+audio. El e2e queda opcional (se salta sin la variable) porque depende de la red.
+
+---
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una

@@ -53,6 +53,7 @@ cd web && npx playwright test -g "fuente externa"   # otra aplicacion (streex/Ra
 cd web && npm run build:lib && npm run servir   # la libreria (dist/lib/ttspro.js) y la pagina ejemplo/ en http://127.0.0.1:8080
 cd web && npx playwright test -g "libreria"   # import ttspro.js, clonar desde fichero, predict de texto y de stream (necesita build:lib)
 cd web && npx playwright test -g "paquetes"   # voz base descargada bajo demanda, en la pagina y en la libreria (necesita paquetes/ y build:lib)
+cd web && TTSPRO_VOCES=https://huggingface.co/Llicklair/ttspro-voces/resolve/main/ npx playwright test -g "host real"   # contra Hugging Face de verdad (red)
 ```
 
 ## Gates

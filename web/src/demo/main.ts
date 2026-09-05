@@ -791,7 +791,13 @@ $("usarPages").addEventListener("click", () => cambiarOrigen(URL_VOCES_PAGES));
 async function descargarBase(clave: string): Promise<void> {
   if (bases.has(clave)) return;
   const barra = $("progreso");
+  const info = $("infoVozBase");
+  const mb = indicePaquetes[clave]?.MB[precisionCargada === ".fp16" ? "fp16" : "fp32"];
+  // The person is looking at THIS panel, not at panel 1: say what is happening here.
+  // A 114 MB pack takes two minutes on a slow line and looked dead without this.
+  info.textContent = `descargando ${clave}${mb ? ` (${mb} MB)` : ""}…`;
   pastilla("modelos", `descargando ${clave}…`, "trabajando");
+  const t0 = performance.now();
   const voz = await cargarPaquete(
     urlVoces,
     clave,
@@ -800,6 +806,10 @@ async function descargarBase(clave: string): Promise<void> {
     proveedoresCargados,
     (r, t) => {
       if (t) barra.style.width = `${Math.min(100, (100 * r) / t).toFixed(1)}%`;
+      const seg = (performance.now() - t0) / 1000;
+      const ritmo = seg > 0.5 ? ` · ${(r / 1e6 / seg).toFixed(1)} MB/s` : "";
+      info.textContent = `descargando ${clave}: ${(r / 1e6).toFixed(0)}${t ? ` / ${(t / 1e6).toFixed(0)}` : ""} MB${ritmo}`;
+      if (t && r >= t) info.textContent = `abriendo ${clave} en ${proveedoresCargados[0]}…`;
     },
   );
   bases.set(clave, voz);
@@ -819,15 +829,23 @@ selectorBase.addEventListener("change", () => {
 });
 
 $("descargarVozBase").addEventListener("click", async () => {
-  if (!tts) return;
+  if (!tts) {
+    $("infoVozBase").textContent = "carga los modelos (panel 1) antes de descargar una voz base";
+    return;
+  }
   const clave = selectorBase.value;
+  const boton = $("descargarVozBase") as HTMLButtonElement;
+  boton.disabled = true;
   try {
     await descargarBase(clave);
     baseActual = clave;
     $("infoVozBase").textContent = `voz base: ${hablanteActual().meta.nombre}`;
   } catch (err) {
     log(`voz base ${clave}: ${String(err)}`);
-    $("infoVozBase").textContent = `error: ${String(err).slice(0, 80)}`;
+    $("infoVozBase").textContent = `error con ${clave}: ${String(err).slice(0, 120)}`;
+    pastilla("modelos", "error", "error");
+  } finally {
+    boton.disabled = false;
   }
 });
 

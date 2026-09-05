@@ -25,8 +25,10 @@ del locutor guardado junto al audio (`eval/<locutor>/CONSENTIMIENTO.md`). Sin es
 |---|---|---|---|---|
 | OpenSLR 61/71–75 | 24 392 | 37,6 | 174 | es |
 | VCTK 0.92 | 44 237 | 41,3 | 109 | en |
-| LibriTTS-R train-clean-100 | 33 232 | — | 247 | en |
-| **Total** | ~101 900 | ~79+ | **530** | es + en |
+| LibriTTS-R train-clean-100 | 28 323 | 38,0 | 247 | en |
+| **Total** | **96 952** | **116,9** | **530** | es + en |
+
+(LibriTTS-R descarta 4 909 frases por durar menos de 1 s o más de 12.)
 
 El número que importa para clonar voces no vistas es el de **locutores**, no el de horas.
 

@@ -142,3 +142,65 @@ test("modo chat: veinte mensajes seguidos por la cola, voz base, wasm", async ({
   // The queue must at least keep up with itself: audio out faster than synthesis in.
   expect(stats.velocidad).toBeGreaterThan(1);
 });
+
+// ---------------------------------------------------------------- another app as the source
+//
+// What an application like streex would do: stream chat lines to the page. Here a
+// throwaway SSE server stands in for it, on another port and therefore another
+// origin, which is exactly the CORS/COEP situation a Rails app is in.
+
+import { createServer } from "node:http";
+
+test("fuente externa: un servidor SSE en otro origen alimenta la cola", async ({ page }) => {
+  const lineas = [
+    { usuario: "streex_bot", texto: "hola desde la otra aplicación" },
+    { user: "Ana", text: "esto viene por SSE, nice" },
+    { display_name: "Pepe_Gamer", message: "Kappa" },
+  ];
+  const servidor = createServer((req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      // the page is cross-origin isolated: an EventSource from it is a CORS request
+      "Access-Control-Allow-Origin": "*",
+    });
+    let i = 0;
+    const tic = setInterval(() => {
+      if (i >= lineas.length) return clearInterval(tic);
+      res.write(`data: ${JSON.stringify(lineas[i++])}\n\n`);
+    }, 200);
+    req.on("close", () => clearInterval(tic));
+  });
+  await new Promise<void>((r) => servidor.listen(0, "127.0.0.1", r));
+  const puerto = (servidor.address() as { port: number }).port;
+
+  try {
+    await page.goto("/");
+    await page.selectOption("#precision", PRECISION);
+    await page.selectOption("#proveedor", "wasm");
+    await page.click("#cargar");
+    await page.waitForFunction(() => document.querySelectorAll(".voz").length > 0, null, {
+      timeout: 240_000,
+    });
+    await page.selectOption("#fuente", "sse");
+    await page.fill("#url", `http://127.0.0.1:${puerto}/eventos`);
+    await page.click("#conectar");
+    await expect(page.locator("#pastilla-chat")).toHaveText("escuchando", { timeout: 10_000 });
+    // two readable lines and one emote-only (skipped before the queue)
+    await page.waitForFunction(
+      () =>
+        (
+          window as unknown as { __ttspro_chat: { estadisticas: () => { reproducidos: number } } }
+        ).__ttspro_chat.estadisticas().reproducidos >= 2,
+      null,
+      { timeout: 120_000 },
+    );
+    const registro = await page.locator("#chatLog").innerText();
+    expect(registro).toContain("streex_bot");
+    expect(registro).toContain("nada que leer");
+    await page.click("#conectar");
+    await expect(page.locator("#conectar")).toHaveText("conectar");
+  } finally {
+    servidor.close();
+  }
+});

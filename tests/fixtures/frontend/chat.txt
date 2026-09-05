@@ -43,3 +43,7 @@ nombre	12345
 nombre	KEKW
 nombre	maría.jose-2000
 nombre	xXx
+nombre	streex_bot
+nombre	Alex
+nombre	Max_99
+nombre	FelixXx

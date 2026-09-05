@@ -68,6 +68,47 @@ Every line goes through a chat normalizer (links, @mentions, emotes, emoji, "jaj
 message while the current one plays and drops what has gone stale. Pick the voice policy per
 message: the base voice keeps up on wasm; the converter costs ~3 s a message there and wants WebGPU.
 
+### Feeding it from your own app (Rails, streex, anything)
+
+The reader does not have to be the one talking to Twitch. If another application already reads
+the chat, it hands lines to the page through one of three doors, chosen in the panel's *fuente*
+selector. Every door delivers `{ usuario, texto }`; field names are forgiving (`user`, `username`,
+`display_name`, `text`, `message`, `body` all work).
+
+**ActionCable (Rails).** Point the page at your cable endpoint and channel:
+
+```ruby
+# app/channels/chat_channel.rb
+class ChatChannel < ApplicationCable::Channel
+  def subscribed = stream_from("chat")
+end
+
+# wherever a chat line arrives
+ActionCable.server.broadcast("chat", { usuario: "Pepe", texto: "hola a todos" })
+
+# config/environments/development.rb — Rails refuses other origins by default
+config.action_cable.allowed_request_origins = ["http://localhost:5173"]
+```
+
+Page: fuente *WebSocket / ActionCable*, URL `ws://localhost:3000/cable`, canal `ChatChannel`.
+Leave the channel empty for a plain WebSocket that sends one JSON object per frame.
+
+**Server-Sent Events.** Any endpoint that streams `data: {"usuario":"Pepe","texto":"hola"}
+
+`.
+It must answer with `Access-Control-Allow-Origin` for the page's origin: the page is cross-origin
+isolated and an `EventSource` is a CORS request.
+
+**postMessage.** Embed the page in an `<iframe>` and post from the parent:
+
+```js
+iframe.contentWindow.postMessage({ tipo: "ttspro", usuario: "Pepe", texto: "hola" }, "*");
+```
+
+Fuente *ventana padre*; the *origen permitido* field restricts which parent is listened to.
+
+For a script of your own, the page also exposes `window.__ttspro_chat.recibir(usuario, texto)`.
+
 ## Where it stands
 
 Measured on 2026-09-05, full detail in [docs/evidencia.md](docs/evidencia.md).

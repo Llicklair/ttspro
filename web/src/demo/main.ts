@@ -14,6 +14,7 @@ import type { Contrato } from "../runtime/contrato.ts";
 import { convertir, vectorVoz } from "../runtime/conversor.ts";
 import { type Proveedor, type Sesion, crearSesion, hilos, soportaF16 } from "../runtime/ort.ts";
 import { sintetizar } from "../runtime/sintetizador.ts";
+import { conectarSSE, conectarWebSocket, escucharPostMessage } from "./fuentes.ts";
 import { conectarTwitch } from "./twitch.ts";
 import { Visor, pintarNivel } from "./visor.ts";
 
@@ -482,30 +483,59 @@ $("simular").addEventListener("click", () => {
   paso();
 });
 
+// The source is whatever hands lines to `recibir`: Twitch itself, or another
+// application that already reads the chat (streex, Rails) over WebSocket /
+// ActionCable, SSE, or postMessage when this page sits in its <iframe>.
+const fuente = $("fuente") as HTMLSelectElement;
+const mostrarCamposDeFuente = () => {
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-fuente]")))
+    el.hidden = !(el.dataset.fuente ?? "").split(" ").includes(fuente.value);
+};
+fuente.addEventListener("change", mostrarCamposDeFuente);
+mostrarCamposDeFuente();
+
+const alEstadoFuente = (estado: string, detalle?: string) => {
+  log(`${fuente.value}: ${estado}${detalle ? ` (${detalle})` : ""}`);
+  $("conectar").textContent =
+    estado === "cerrado" || estado === "error" ? "conectar" : "desconectar";
+  if (estado === "conectado") pastilla("chat", "escuchando", "listo");
+  else if (estado === "conectando") pastilla("chat", "conectando…", "trabajando");
+  else pastilla("chat", estado, estado === "error" ? "error" : "");
+  if (estado === "cerrado" || estado === "error") desconectar = null;
+};
+
 $("conectar").addEventListener("click", () => {
   if (desconectar) {
     desconectar();
     desconectar = null;
     return;
   }
-  const canal = ($("canal") as HTMLInputElement).value.trim();
-  if (!canal) {
-    log("chat: escribe el nombre del canal");
-    return;
+  const valor = (id: string) => ($(id) as HTMLInputElement).value.trim();
+  const alLinea = (l: { usuario: string; texto: string }) => recibir(l.usuario || "chat", l.texto);
+  switch (fuente.value) {
+    case "twitch": {
+      if (!valor("canal")) return log("chat: escribe el nombre del canal");
+      desconectar = conectarTwitch(
+        valor("canal"),
+        (m) => recibir(m.usuario, m.texto),
+        alEstadoFuente,
+      );
+      break;
+    }
+    case "websocket": {
+      if (!valor("url")) return log("chat: escribe la URL del WebSocket");
+      desconectar = conectarWebSocket(valor("url"), valor("canalCable"), alLinea, alEstadoFuente);
+      break;
+    }
+    case "sse": {
+      if (!valor("url")) return log("chat: escribe la URL del EventSource");
+      desconectar = conectarSSE(valor("url"), alLinea, alEstadoFuente);
+      break;
+    }
+    case "postmessage":
+      desconectar = escucharPostMessage(valor("origen") || "*", alLinea, alEstadoFuente);
+      break;
   }
-  desconectar = conectarTwitch(
-    canal,
-    (m) => recibir(m.usuario, m.texto),
-    (estado, detalle) => {
-      log(`twitch: ${estado}${detalle ? ` (${detalle})` : ""}`);
-      $("conectar").textContent =
-        estado === "cerrado" || estado === "error" ? "conectar" : "desconectar";
-      if (estado === "conectado") pastilla("chat", "escuchando", "listo");
-      else if (estado === "conectando") pastilla("chat", "conectando…", "trabajando");
-      else pastilla("chat", estado, estado === "error" ? "error" : "");
-      if (estado === "cerrado" || estado === "error") desconectar = null;
-    },
-  );
 });
 
 // For the e2e test and for anyone wiring their own source: push a line in.

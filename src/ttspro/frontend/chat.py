@@ -167,7 +167,8 @@ def normalizar_chat(texto: str, max_caracteres: int = 200) -> str:
 #     split, emoji and symbols out. No abbreviation table here: a user called "x" is
 #     not "por". Falls back to the raw name when less than two characters are left,
 #     because a message with no author is worse than an odd name.
-_DECORACION = re.compile(r"^(?:xx|x)(?=[A-Za-z])|(?<=[A-Za-z0-9])(?:xx|x)$", re.IGNORECASE)
+# Two letters, never one: "Alex", "Max" and "streex" end in a real x.
+_DECORACION = re.compile(r"^xx(?=[A-Za-z])|(?<=[A-Za-z0-9])xx$", re.IGNORECASE)
 _DIGITOS_FINALES = re.compile(r"[0-9]+$")
 _CAMELLO = re.compile(r"(?<=[a-záéíóúüñ])(?=[A-ZÁÉÍÓÚÜÑ])")
 

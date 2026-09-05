@@ -301,8 +301,25 @@
           siguiente mientras suena el actual y descarta lo que ya es viejo.
         </p>
         <div class="fila">
-          <label class="campo">canal de Twitch
+          <label class="campo">fuente
+            <select id="fuente">
+              <option value="twitch" selected>Twitch (chat del canal)</option>
+              <option value="websocket">WebSocket / ActionCable (Rails)</option>
+              <option value="sse">SSE (EventSource)</option>
+              <option value="postmessage">ventana padre (postMessage)</option>
+            </select>
+          </label>
+          <label class="campo" data-fuente="twitch">canal de Twitch
             <input id="canal" type="text" placeholder="nombre del canal" autocomplete="off" />
+          </label>
+          <label class="campo" data-fuente="websocket sse" hidden>URL
+            <input id="url" type="text" placeholder="ws://localhost:3000/cable" autocomplete="off" />
+          </label>
+          <label class="campo" data-fuente="websocket" hidden>canal ActionCable
+            <input id="canalCable" type="text" placeholder="ChatChannel (vacío: JSON plano)" autocomplete="off" />
+          </label>
+          <label class="campo" data-fuente="postmessage" hidden>origen permitido
+            <input id="origen" type="text" value="*" autocomplete="off" />
           </label>
           <button id="conectar" disabled>conectar</button>
           <label class="campo">voz

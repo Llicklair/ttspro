@@ -772,6 +772,33 @@ cuenta como en espera. No lo vio la intuición: lo vio el número 0 donde tenía
 
 ---
 
+## 2026-09-05 · Otra aplicación como fuente del chat (streex, Rails)
+
+**Montaje.** Marcos: el flujo real es que una tercera aplicación, streex (Ruby on Rails), es la que
+lee el chat. La página no tiene que hablar con Twitch: tiene que recibir líneas. Tres puertas en
+`web/src/demo/fuentes.ts`, las tres entregan `{usuario, texto}` con nombres de campo tolerantes:
+WebSocket con protocolo **ActionCable** (lo nativo de Rails), **SSE** y **postMessage** (página en
+un iframe de la otra aplicación).
+
+**ActionCable sin servidor Rails.** 3 tests con un WebSocket falso que reproduce lo que Rails
+manda: `subscribe` solo tras `welcome`, «conectado» solo tras `confirm_subscription`, los `ping`
+no producen líneas, el sobre `{identifier, message}` se desenvuelve, `reject_subscription` es un
+error y no un silencio.
+
+**SSE de verdad, en otro origen.** El e2e levanta un servidor HTTP en un puerto aleatorio (otro
+origen, como estará Rails), que emite tres líneas por `EventSource`; la página, aislada con COEP,
+las recibe porque el servidor manda `Access-Control-Allow-Origin`. Sin esa cabecera no llega nada:
+es lo que hay que decirle a quien configure el lado Rails, junto con
+`config.action_cable.allowed_request_origins`, que rechaza orígenes desconocidos por defecto.
+Resultado: 2 líneas leídas, la de solo emote saltada, desconexión limpia.
+
+**Fallo que salió de esa prueba.** `nombre_legible("streex_bot")` decía «stree bot»: la regla que
+quita la decoración «xX…Xx» quitaba también una x final de verdad, y «Alex», «Max» o «Felix»
+habrían perdido la suya. Ahora solo se van pares «xx»; 4 nombres más en la fixture (76 casos de
+paridad). Lo encontró el nombre del bot de prueba, no una revisión.
+
+---
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una

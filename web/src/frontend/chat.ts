@@ -164,7 +164,8 @@ export function normalizarChat(texto: string, maxCaracteres = 200): string {
 //     split, emoji and symbols out. No abbreviation table here: a user called "x" is
 //     not "por". Falls back to the raw name when less than two characters are left,
 //     because a message with no author is worse than an odd name.
-const DECORACION = /^(?:xx|x)(?=[A-Za-z])|(?<=[A-Za-z0-9])(?:xx|x)$/gi;
+// Two letters, never one: "Alex", "Max" and "streex" end in a real x.
+const DECORACION = /^xx(?=[A-Za-z])|(?<=[A-Za-z0-9])xx$/gi;
 const DIGITOS_FINALES = /[0-9]+$/;
 const CAMELLO = /(?<=[a-záéíóúüñ])(?=[A-ZÁÉÍÓÚÜÑ])/g;
 

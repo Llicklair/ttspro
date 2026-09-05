@@ -47,6 +47,7 @@ uv run python -m ttspro.train.entrenar --cache cache/openslr_es cache/vctk   --s
 cd web && npm run dev                # http://localhost:5173
 cd web && npx playwright test        # criterio 5: Chromium headless, wasm, fp16 (TTSPRO_PRECISION="" para fp32)
 cd web && npx playwright test -g "modo chat"   # ADR 0010: veinte mensajes por la cola, escribe test-results/chat.json
+cd web && npx playwright test -g "fuente externa"   # otra aplicacion (streex/Rails) alimenta la cola por SSE desde otro origen
 ```
 
 ## Gates

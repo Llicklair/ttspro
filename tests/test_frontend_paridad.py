@@ -144,4 +144,11 @@ def test_nombre_legible_dice_algo() -> None:
     # nothing sayable left -> the raw name, never an empty author
     assert nombre_legible("12345") == "12345"
     assert nombre_legible("xXx") == "xXx"
-    assert nombre_legible("KEKW") == "KEKW"  # no emote list for names: it is what they are called
+    assert nombre_legible("KEKW") == "KEKW"
+    # a real trailing x is part of the name; only the "xX…Xx" decoration goes
+    assert nombre_legible("streex_bot") == "streex bot"
+    assert nombre_legible("Alex") == "Alex"
+    assert nombre_legible("Max_99") == "Max"
+    assert (
+        nombre_legible("FelixXx") == "Felix"
+    )  # no emote list for names: it is what they are called

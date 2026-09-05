@@ -8,10 +8,11 @@ modules (`ttspro.export.piper`, `ttspro.model.conversor`), so their licences tra
 
 | Artifact | Source | Licence | Ships to the browser |
 |---|---|---|---|
-| `models/tts.onnx` — base voice | [`es_ES-davefx-medium`](https://huggingface.co/rhasspy/piper-voices) (Piper) | MIT; its `davefx` dataset is CC0 | yes |
+| `models/tts.onnx` — base voice | [`es_MX-claude-high`](https://huggingface.co/rhasspy/piper-voices) (Piper) | MIT; its dataset is Apache-2.0 | yes |
+| voice packs on [`Llicklair/ttspro-voces`](https://huggingface.co/Llicklair/ttspro-voces) — 8 base voices | Piper voices ported | MIT; datasets CC0 / Apache-2.0 per voice, see each MODEL_CARD in `rhasspy/piper-voices` | on demand |
 | `models/conversor.onnx`, `models/voz.onnx` — tone colour | [`myshell-ai/OpenVoiceV2`](https://huggingface.co/myshell-ai/OpenVoiceV2) | MIT | yes |
 | `models/speaker_encoder.onnx` — similarity metric | [`Wespeaker/wespeaker-voxceleb-resnet34-LM`](https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM) | CC BY 4.0 | no, it only measures |
-| `models/voces.json` — 20 preset voices | 256-d vectors measured over VCTK and OpenSLR es | see below | yes |
+| `models/voces.json` — 24 preset voices | 256-d vectors measured over VCTK and OpenSLR es | see below | yes |
 
 `voces.json` holds no audio: each preset is a 256-float vector produced by the OpenVoice reference
 encoder from recordings in [VCTK](https://datashare.ed.ac.uk/handle/10283/3443) (CC BY 4.0) and

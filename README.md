@@ -71,8 +71,8 @@ fast and clear way to give people different voices.
 | Pack | Quality | fp16 | ms / sentence, CPU |
 |---|---|---|---|
 | es_ES-carlfm-x_low | very low | 11.0 MB | 33 |
-| es_ES-davefx-medium (the local default) | medium | 32.3 MB | 43 |
-| es_MX-claude-high | high | 32.3 MB | 60 |
+| es_ES-davefx-medium | medium | 32.3 MB | 43 |
+| es_MX-claude-high (the local default: it survives the converter) | high | 32.3 MB | 60 |
 | es_MX-ald-medium · es_ES-mls_9972-low · es_ES-mls_10246-low · es_MX-ald-x_low | | 11–32 MB | 62–129 |
 | es_AR-daniela-high | high | 57.6 MB | 210 |
 

@@ -66,7 +66,8 @@ Every number is dated in [docs/evidencia.md](docs/evidencia.md), including the o
 
 ## Provenance and consent
 
-The base voice's dataset (`davefx`) is CC0 and the voice itself is MIT. The 20 preset voices are
+The base voice is `es_MX-claude-high` (Piper, MIT); its dataset is Apache-2.0. `es_ES-davefx-medium`
+(dataset CC0) stays available as a pack. The 24 preset voices are
 vectors derived from VCTK (CC BY 4.0) and OpenSLR es (CC BY-SA 4.0) — corpora recorded with the
 speakers' consent for research use. No audio from those corpora is redistributed here.
 

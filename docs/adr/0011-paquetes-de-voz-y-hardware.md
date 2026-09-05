@@ -57,3 +57,17 @@ Dos preguntas distintas con dos respuestas medidas ([evidencia](../evidencia.md)
   lo que cambia es que ya no es el único camino a «muchas voces».
 - Pendiente que decide algo: la calibración en la GTX 1070 de Marcos con WebGPU fp32, que es el
   número que dice si la voz clonada vale para directo. La página ya la mide con un botón.
+
+---
+
+**Enmienda (2026-09-06, misma tarde):** Marcos: *«las voces clonadas siguen sonando con mala
+pronunciación, ¿se puede mejorar?»* y, probando, *«esta funciona muy bien: claude spanish mexico»*.
+Medido ([evidencia](../evidencia.md)): `tau` no es la palanca (la WER convertida queda en 0,55–0,72
+para cualquier valor); la **voz base debajo del conversor sí lo es**. Con davefx la conversión
+duplica los errores (0,353 → 0,603); con claude casi no los toca (0,362 → 0,397) y además clona
+más cerca (parecido 0,484 frente a 0,455). **La voz base local por defecto pasa a
+`es_MX-claude-high`**: `ttspro.export.modelos` la construye por defecto, `models/contrato.json` y
+`models/voces.json` se regeneran con ella, y davefx sigue disponible como paquete. El ADR 0008
+eligió davefx por WER de la voz base; este dato es sobre lo que sale del conversor, que es lo que
+el usuario oye cuando clona.
+

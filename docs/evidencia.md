@@ -950,6 +950,42 @@ audio. El e2e queda opcional (se salta sin la variable) porque depende de la red
 
 ---
 
+## 2026-09-06 · Mala pronunciación al clonar: no es `tau`, es la voz base
+
+**Montaje.** Marcos: «las voces clonadas siguen sonando con mala pronunciación». WER con
+Whisper-small sobre las 16 primeras frases de chat normalizadas × 3 semillas, `tts.onnx` → 
+`conversor.onnx` en ORT CPU, dos destinos: el preset cof_02484 y la grabación p225 de VCTK.
+
+**1. `tau` no manda.** Voz base davefx, WER sin conversor 0,353:
+
+| tau | 0,05 | 0,1 | 0,15 | 0,2 | 0,3 | 0,45 |
+|---|---|---|---|---|---|---|
+| preset, WER convertida | 0,624 | 0,617 | 0,694 | 1,446 | 0,567 | 0,687 |
+| grabación, WER convertida | 0,644 | 0,654 | 0,736 | 0,583 | 0,694 | 0,716 |
+
+Todo en la misma banda: el conversor roba articulación y el parámetro no la devuelve. El 1,446 de
+tau 0,2 es una frase que Whisper alucinó largo; no es una tendencia.
+
+**2. La voz base sí manda.** Mismo destino (preset), tau 0,3:
+
+| Voz base | WER base | WER convertida | Parecido con el destino (coseno, 142 refs reales) |
+|---|---|---|---|
+| davefx, length 1,0 | 0,353 | 0,603 | 0,117 → 0,455 |
+| davefx, length 1,15 | 0,369 | 0,577 | — |
+| davefx, noise 0,4, length 1,1 | 0,329 | 0,547 | — |
+| **claude (es_MX), length 1,0** | 0,362 | **0,397** | 0,248 → **0,484** |
+
+Hablar más despacio o con menos ruido apenas ayuda; cambiar la voz base debajo del conversor
+recorta el daño de +0,25 a +0,035 y además acerca más al destino. Coincide con lo que Marcos oyó
+antes de ver el número: «claude spanish mexico funciona muy bien».
+
+**Consecuencia.** La voz base local por defecto pasa a `es_MX-claude-high` (enmienda al
+[ADR 0011](adr/0011-paquetes-de-voz-y-hardware.md)); `export.modelos` la construye por defecto y
+`voces.json` se mide sobre ella. Lo que no cambia: el conversor sigue siendo el mismo, y con
+cualquier base la clonación es parecido, no copia.
+
+---
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una

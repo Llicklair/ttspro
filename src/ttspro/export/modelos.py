@@ -69,7 +69,9 @@ def paso(titulo: str, argumentos: list[str]) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--voz", default="es_ES-davefx-medium", help="clave de la voz de Piper")
+    # es_MX-claude-high since 2026-09-06 (ADR 0011, enmienda): same base WER as
+    # davefx but it SURVIVES the converter (0.397 vs 0.603) and clones closer.
+    ap.add_argument("--voz", default="es_MX-claude-high", help="clave de la voz de Piper")
     ap.add_argument("--sin-encoder", action="store_true", help="no exportar el speaker encoder")
     args = ap.parse_args()
 

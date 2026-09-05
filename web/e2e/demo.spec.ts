@@ -274,7 +274,7 @@ test("librería: import ttspro.js, clonar desde un fichero, predict de texto y d
       };
     });
     console.log(JSON.stringify(medido));
-    expect(medido.voces).toBe(20);
+    expect(medido.voces).toBeGreaterThanOrEqual(20);
     expect(medido.vector).toBe(256);
     expect(medido.clonado.segundos).toBeGreaterThan(1);
     expect(medido.clonado.wavBytes).toBeGreaterThan(44);

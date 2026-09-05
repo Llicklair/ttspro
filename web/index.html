@@ -3,79 +3,293 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ttspro — prueba en el navegador</title>
+    <title>ttspro · voz clonada en el navegador</title>
     <style>
-      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-      body { max-width: 940px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
-      fieldset { margin: 1rem 0; border: 1px solid #8884; border-radius: 8px; }
-      legend { font-weight: 600; }
-      textarea { width: 100%; min-height: 4.5rem; font: inherit; }
-      button { font: inherit; padding: .4rem .9rem; }
-      label { display: inline-flex; gap: .4rem; align-items: center; margin-right: 1rem; }
-      .mono { font-family: ui-monospace, monospace; font-size: .9em; white-space: pre-wrap; }
-      #registro { max-height: 13rem; overflow: auto; background: #8881; padding: .5rem; border-radius: 6px; }
+      :root {
+        color-scheme: dark light;
+        --fondo: #0b0d15;
+        --fondo-2: #121522;
+        --panel: #161a2b;
+        --linea: #2a3150;
+        --texto: #e8ecf8;
+        --texto-tenue: #98a2c0;
+        --acento: #a78bfa;
+        --acento-2: #22d3ee;
+        --acento-3: #f472b6;
+        --ok: #34d399;
+        --aviso: #fbbf24;
+        --radio: 16px;
+        --sombra: 0 18px 40px -20px #000a;
+      }
+      :root { --onda-tenue: #ffffff26; }
+      @media (prefers-color-scheme: light) {
+        :root:not([data-tema="oscuro"]) {
+          color-scheme: light;
+          --fondo: #eef0fb;
+          --fondo-2: #ffffff;
+          --panel: #ffffff;
+          --linea: #cdd4ee;
+          --onda-tenue: #0b0d1536;
+          --texto: #10131f;
+          --texto-tenue: #545e7d;
+          --acento: #6d28d9;
+          --acento-2: #0e7490;
+          --acento-3: #be185d;
+          --sombra: 0 20px 44px -26px #2b1a6b40;
+        }
+      }
+      :root[data-tema="claro"] {
+        color-scheme: light;
+        --fondo: #eef0fb; --fondo-2: #ffffff; --panel: #ffffff; --linea: #cdd4ee;
+        --onda-tenue: #0b0d1536; --texto: #10131f; --texto-tenue: #545e7d;
+        --acento: #6d28d9; --acento-2: #0e7490; --acento-3: #be185d;
+        --sombra: 0 20px 44px -26px #2b1a6b40;
+      }
+      :root[data-tema="oscuro"] {
+        color-scheme: dark;
+        --fondo: #0b0d15; --fondo-2: #121522; --panel: #161a2b; --linea: #2a3150;
+        --onda-tenue: #ffffff26; --texto: #e8ecf8; --texto-tenue: #98a2c0;
+        --acento: #a78bfa; --acento-2: #22d3ee; --acento-3: #f472b6;
+        --sombra: 0 18px 40px -20px #000a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: var(--texto);
+        background:
+          radial-gradient(1100px 620px at 12% -12%, color-mix(in oklab, var(--acento) 26%, transparent), transparent 70%),
+          radial-gradient(950px 560px at 92% 4%, color-mix(in oklab, var(--acento-2) 22%, transparent), transparent 68%),
+          var(--fondo);
+      }
+      .envoltura { max-width: 1040px; margin: 0 auto; padding: 2.6rem 1.2rem 4rem; }
+
+      header { margin-bottom: 2rem; }
+      h1 {
+        margin: 0;
+        font-size: clamp(2.1rem, 5.5vw, 3.2rem);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        background: linear-gradient(100deg, var(--acento), var(--acento-2) 45%, var(--acento-3));
+        background-size: 220% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: desliz 9s ease-in-out infinite alternate;
+      }
+      @keyframes desliz { to { background-position: 100% 0; } }
+      header p { margin: .55rem 0 0; color: var(--texto-tenue); max-width: 62ch; }
+      header code { color: var(--texto); background: #7f7f7f22; padding: .1rem .35rem; border-radius: 6px; font-size: .88em; }
+
+      .panel {
+        background: color-mix(in oklab, var(--panel) 88%, transparent);
+        border: 1px solid var(--linea);
+        border-radius: var(--radio);
+        padding: 1.15rem 1.25rem 1.3rem;
+        margin-bottom: 1.1rem;
+        box-shadow: var(--sombra);
+        backdrop-filter: blur(8px);
+        animation: entra .5s both;
+      }
+      .panel:nth-of-type(2) { animation-delay: .06s; }
+      .panel:nth-of-type(3) { animation-delay: .12s; }
+      @keyframes entra { from { opacity: 0; transform: translateY(10px); } }
+
+      .cabecera { display: flex; align-items: center; gap: .7rem; margin-bottom: .95rem; }
+      .num {
+        display: grid; place-items: center; width: 27px; height: 27px; flex: none;
+        border-radius: 9px; font-size: .85rem; font-weight: 700; color: #0b0d15;
+        background: linear-gradient(140deg, var(--acento), var(--acento-2));
+      }
+      .cabecera h2 { margin: 0; font-size: 1.06rem; font-weight: 650; letter-spacing: -0.01em; }
+      .pastilla {
+        margin-left: auto; font-size: .74rem; font-weight: 600; letter-spacing: .02em;
+        padding: .26rem .62rem; border-radius: 999px; border: 1px solid var(--linea);
+        color: var(--texto-tenue); white-space: nowrap;
+      }
+      .pastilla[data-estado="listo"] { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); background: color-mix(in oklab, var(--ok) 12%, transparent); }
+      .pastilla[data-estado="trabajando"] { color: var(--acento-2); border-color: color-mix(in oklab, var(--acento-2) 45%, transparent); animation: latido 1.1s ease-in-out infinite; }
+      .pastilla[data-estado="error"] { color: var(--aviso); border-color: color-mix(in oklab, var(--aviso) 45%, transparent); }
+      @keyframes latido { 50% { opacity: .5; } }
+
+      .fila { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+      label.campo { display: inline-flex; align-items: center; gap: .45rem; font-size: .84rem; color: var(--texto-tenue); }
+      select, input[type="number"], textarea, input[type="file"] {
+        font: inherit; color: var(--texto); background: var(--fondo-2);
+        border: 1px solid var(--linea); border-radius: 10px; padding: .42rem .6rem;
+      }
+      select:focus-visible, textarea:focus-visible, button:focus-visible, .voz:focus-visible, input:focus-visible {
+        outline: 2px solid var(--acento-2); outline-offset: 2px;
+      }
+      textarea { width: 100%; min-height: 5.4rem; resize: vertical; line-height: 1.5; margin: .2rem 0 .9rem; }
+
+      button {
+        font: inherit; font-weight: 600; cursor: pointer; color: var(--texto);
+        background: var(--fondo-2); border: 1px solid var(--linea);
+        border-radius: 11px; padding: .5rem .95rem; transition: transform .12s, border-color .12s, background .12s;
+      }
+      button:hover:not(:disabled) { transform: translateY(-1px); border-color: color-mix(in oklab, var(--acento) 55%, var(--linea)); }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      button.principal {
+        color: #0b0d15; border: none;
+        background: linear-gradient(120deg, var(--acento), var(--acento-2));
+      }
+      button.principal { box-shadow: 0 8px 22px -10px color-mix(in oklab, var(--acento) 85%, transparent); }
+      button.principal:hover:not(:disabled) { filter: brightness(1.08); }
+      input[type="file"] { max-width: 15rem; font-size: .82rem; }
+      input[type="file"]::file-selector-button {
+        font: inherit; font-weight: 600; cursor: pointer; margin-right: .5rem;
+        color: var(--texto); background: color-mix(in oklab, var(--acento) 16%, transparent);
+        border: 1px solid var(--linea); border-radius: 8px; padding: .22rem .6rem;
+      }
+      .tema { margin-left: auto; }
+      .tema select { font-size: .8rem; padding: .3rem .5rem; }
+      .titulo { display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
+
+      .barra { height: 5px; border-radius: 999px; background: var(--linea); overflow: hidden; margin-top: .8rem; }
+      .barra > i { display: block; height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--acento), var(--acento-2)); transition: width .2s; }
+
+      .voces { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: .55rem; margin-top: .2rem; }
+      .voz {
+        text-align: left; padding: .6rem .7rem; border-radius: 12px; cursor: pointer;
+        background: var(--fondo-2); border: 1px solid var(--linea); transition: transform .12s, border-color .12s;
+      }
+      .voz:hover { transform: translateY(-2px); }
+      .voz[aria-checked="true"] { border-color: transparent; box-shadow: 0 0 0 2px var(--acento); background: color-mix(in oklab, var(--acento) 14%, var(--fondo-2)); }
+      .voz b { display: block; font-size: .9rem; font-weight: 650; }
+      .voz span { display: block; font-size: .76rem; color: var(--texto-tenue); }
+
+      canvas#onda { width: 100%; height: 148px; display: block; border-radius: 12px; background: var(--fondo-2); border: 1px solid var(--linea); cursor: crosshair; }
+      canvas#nivel { width: 128px; height: 26px; vertical-align: middle; }
+
+      .deslizadores { display: grid; grid-template-columns: repeat(auto-fit, minmax(184px, 1fr)); gap: .55rem .95rem; margin: .9rem 0; }
+      .deslizador { font-size: .78rem; color: var(--texto-tenue); }
+      .deslizador div { display: flex; justify-content: space-between; margin-bottom: .1rem; }
+      .deslizador b { color: var(--texto); font-variant-numeric: tabular-nums; }
+      input[type="range"] { width: 100%; accent-color: var(--acento); }
+
+      .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .82rem; }
+      #medidas { margin: .9rem 0 .2rem; color: var(--texto); }
+      #fonemas, #infoVoz, #estado { color: var(--texto-tenue); margin: .55rem 0 0; }
       #estado { font-weight: 600; }
-      .nota { color: #8889; font-size: .9em; }
+      .nota { font-size: .78rem; color: var(--texto-tenue); margin: .7rem 0 0; }
+      a#descargar { color: var(--acento-2); font-weight: 600; text-decoration: none; margin-left: .3rem; }
+      details { margin-top: .6rem; }
+      summary { cursor: pointer; color: var(--texto-tenue); font-size: .84rem; }
+      #registro { max-height: 12rem; overflow: auto; margin: .6rem 0 0; padding: .6rem .7rem; border-radius: 10px; background: var(--fondo-2); border: 1px solid var(--linea); white-space: pre-wrap; }
+      @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
     </style>
   </head>
   <body>
-    <h1>ttspro · prueba en el navegador</h1>
-    <p>
-      Texto → fonemas (espeak-ng wasm) → <code>tts.onnx</code> en una voz base fija →
-      <code>conversor.onnx</code> en la voz que elijas. La voz base es <code>es_ES-davefx</code> de Piper (MIT). La voz sale de un preset o de una grabación
-      tuya a través de <code>voz.onnx</code>. Sin servidor: todo corre aquí con ONNX Runtime Web.
-    </p>
+    <div class="envoltura">
+      <header>
+        <div class="titulo">
+          <h1>Tu voz, en el navegador</h1>
+          <label class="campo tema">tema
+            <select id="tema">
+              <option value="auto">auto</option>
+              <option value="oscuro">oscuro</option>
+              <option value="claro">claro</option>
+            </select>
+          </label>
+        </div>
+        <p>
+          Texto → fonemas con <code>espeak-ng</code> → <code>tts.onnx</code> en una voz base →
+          <code>conversor.onnx</code> con la voz que elijas. Sin servidor y sin red: todo se ejecuta
+          aquí con ONNX Runtime Web.
+        </p>
+      </header>
 
-    <fieldset>
-      <legend>1 · Modelos</legend>
-      <label>precisión
-        <select id="precision"><option value="auto">auto (fp16 solo con WebGPU + shader-f16)</option><option value=".fp16">fp16</option><option value="">fp32</option></select>
-      </label>
-      <label>proveedor
-        <select id="proveedor"><option value="auto">auto (webgpu → wasm)</option><option value="webgpu">webgpu</option><option value="wasm">wasm</option></select>
-      </label>
-      <button id="cargar">cargar</button>
-      <p id="estado">sin cargar</p>
-    </fieldset>
+      <section class="panel">
+        <div class="cabecera">
+          <span class="num">1</span><h2>Modelos</h2>
+          <span class="pastilla" id="pastilla-modelos">sin cargar</span>
+        </div>
+        <div class="fila">
+          <label class="campo">precisión
+            <select id="precision">
+              <option value="auto">auto</option>
+              <option value=".fp16">fp16</option>
+              <option value="">fp32</option>
+            </select>
+          </label>
+          <label class="campo">proveedor
+            <select id="proveedor">
+              <option value="auto">auto (webgpu → wasm)</option>
+              <option value="webgpu">webgpu</option>
+              <option value="wasm">wasm</option>
+            </select>
+          </label>
+          <button id="cargar" class="principal">cargar modelos</button>
+        </div>
+        <div class="barra"><i id="progreso"></i></div>
+        <p id="estado" class="mono">sin cargar</p>
+      </section>
 
-    <fieldset>
-      <legend>2 · Voz</legend>
-      <p>
-        <label>preset <select id="preset" disabled><option value="">— elige una voz —</option></select></label>
-      </p>
-      <p>o clónala de una grabación de 3 s o más:
-        <input id="fichero" type="file" accept="audio/*" disabled />
-        <button id="grabar" disabled>grabar 6 s con el micrófono</button>
-      </p>
-      <p id="infoVoz" class="mono">—</p>
-      <p class="nota">Clona solo voces cuyo dueño te haya dado permiso.</p>
-    </fieldset>
+      <section class="panel">
+        <div class="cabecera">
+          <span class="num">2</span><h2>Voz</h2>
+          <span class="pastilla" id="pastilla-voz">sin elegir</span>
+        </div>
+        <div class="voces" id="voces" role="radiogroup" aria-label="voces disponibles"></div>
+        <div class="fila" style="margin-top: .9rem">
+          <span class="campo">o clónala:</span>
+          <input id="fichero" type="file" accept="audio/*" disabled />
+          <button id="grabar" disabled>grabar 6 s</button>
+          <canvas id="nivel" aria-hidden="true"></canvas>
+        </div>
+        <p id="infoVoz" class="mono">—</p>
+        <p class="nota">Clona solo voces cuyo dueño te haya dado permiso.</p>
+      </section>
 
-    <fieldset>
-      <legend>3 · Texto</legend>
-      <label>idioma <select id="idioma"><option value="es" selected>es</option></select></label>
-      <textarea id="texto">Hola, ¿cómo estás? Esta voz sale de un modelo que corre entero en el navegador.</textarea>
-      <div>
-        <label title="variación del timbre en el sintetizador">noise <input id="noise" type="range" min="0" max="1.5" step="0.01" value="0.667" /> <span id="noise_v"></span></label>
-        <label title="ruido del predictor de duración; 0.8 es el defecto de VITS y con este modelo dispara la duración">noise_w <input id="noise_w" type="range" min="0" max="1.5" step="0.01" value="0.5" /> <span id="noise_w_v"></span></label>
-        <label title="velocidad: mayor es más lento">length <input id="length" type="range" min="0.5" max="2" step="0.01" value="1.0" /> <span id="length_v"></span></label>
-        <label title="cuánto del audio base conserva el conversor">tau <input id="tau" type="range" min="0.05" max="1" step="0.05" value="0.3" /> <span id="tau_v"></span></label>
-        <label>semilla <input id="semilla" type="number" value="0" style="width:5rem" /></label>
-      </div>
-      <p>
-        <button id="sintetizar" disabled>sintetizar en esa voz</button>
-        <button id="sinConvertir" disabled>solo voz base</button>
-        <button id="repetir">repetir</button>
-        <a id="descargar" hidden>descargar wav</a>
-      </p>
-      <p id="medidas" class="mono">—</p>
-      <p id="fonemas" class="mono">—</p>
-    </fieldset>
+      <section class="panel">
+        <div class="cabecera">
+          <span class="num">3</span><h2>Texto</h2>
+          <span class="pastilla" id="pastilla-audio">en espera</span>
+        </div>
+        <label class="campo" style="margin-bottom:.4rem">idioma
+          <select id="idioma"><option value="es" selected>es</option></select>
+        </label>
+        <textarea id="texto">Hola, ¿cómo estás? Esta voz sale de un modelo que corre entero en el navegador.</textarea>
+        <canvas id="onda"></canvas>
+        <div class="deslizadores">
+          <label class="deslizador" title="variación del timbre en el sintetizador">
+            <div><span>noise</span><b id="noise_v"></b></div>
+            <input id="noise" type="range" min="0" max="1.5" step="0.01" value="0.667" />
+          </label>
+          <label class="deslizador" title="ruido del predictor de duración: por encima de 0.5 la duración se dispara">
+            <div><span>noise_w</span><b id="noise_w_v"></b></div>
+            <input id="noise_w" type="range" min="0" max="1.5" step="0.01" value="0.5" />
+          </label>
+          <label class="deslizador" title="velocidad: mayor es más lento">
+            <div><span>length</span><b id="length_v"></b></div>
+            <input id="length" type="range" min="0.5" max="2" step="0.01" value="1.0" />
+          </label>
+          <label class="deslizador" title="cuánto del audio base conserva el conversor">
+            <div><span>tau</span><b id="tau_v"></b></div>
+            <input id="tau" type="range" min="0.05" max="1" step="0.05" value="0.3" />
+          </label>
+          <label class="deslizador" title="fija el ruido para poder repetir el mismo resultado">
+            <div><span>semilla</span><b></b></div>
+            <input id="semilla" type="number" value="0" />
+          </label>
+        </div>
+        <div class="fila">
+          <button id="sintetizar" class="principal" disabled>sintetizar en esa voz</button>
+          <button id="sinConvertir" disabled>solo voz base</button>
+          <button id="repetir">repetir</button>
+          <a id="descargar" hidden>descargar wav</a>
+        </div>
+        <p id="medidas" class="mono">—</p>
+        <p id="fonemas" class="mono">—</p>
+      </section>
 
-    <fieldset>
-      <legend>Registro</legend>
-      <pre id="registro" class="mono"></pre>
-    </fieldset>
+      <details>
+        <summary>registro</summary>
+        <pre id="registro" class="mono"></pre>
+      </details>
+    </div>
 
     <script type="module" src="/src/demo/main.ts"></script>
   </body>

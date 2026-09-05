@@ -41,7 +41,7 @@ export async function grabar(segundos: number, alProgresar?: (s: number) => void
 export async function grabarPCM(
   segundos: number,
   sampleRate: number,
-  alProgresar?: (s: number) => void,
+  alProgresar?: (s: number, nivel: number) => void,
 ): Promise<Float32Array> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
@@ -50,12 +50,21 @@ export async function grabarPCM(
   const fuente = ctx.createMediaStreamSource(stream);
   const procesador = ctx.createScriptProcessor(4096, 1, 1);
   const trozos: Float32Array[] = [];
-  procesador.onaudioprocess = (e) => trozos.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  let nivel = 0;
+  procesador.onaudioprocess = (e) => {
+    const datos = new Float32Array(e.inputBuffer.getChannelData(0));
+    trozos.push(datos);
+    let suma = 0;
+    for (const x of datos) suma += x * x;
+    // Smoothed RMS: a meter that jumps on every buffer reads as noise, not as level.
+    nivel = 0.7 * nivel + 0.3 * Math.sqrt(suma / datos.length);
+  };
   fuente.connect(procesador);
   procesador.connect(ctx.destination);
-  for (let s = 1; s <= segundos; s++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    alProgresar?.(s);
+  const t0 = performance.now();
+  while (performance.now() - t0 < segundos * 1000) {
+    await new Promise((r) => setTimeout(r, 60));
+    alProgresar?.((performance.now() - t0) / 1000, nivel);
   }
   procesador.disconnect();
   fuente.disconnect();

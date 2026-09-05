@@ -33,11 +33,12 @@ test("carga, elige voz, sintetiza y convierte en wasm", async ({ page }) => {
   const estado = (await page.locator("#estado").textContent()) ?? "";
   expect(estado).toContain("aislado=true");
 
-  await page.waitForFunction(() => document.querySelectorAll("#preset option").length > 1, null, {
+  await page.waitForFunction(() => document.querySelectorAll(".voz").length > 0, null, {
     timeout: 120_000,
   });
-  await page.selectOption("#preset", "0");
+  await page.click('[data-voz="0"]');
   await expect(page.locator("#infoVoz")).toContainText("preset");
+  await expect(page.locator('[data-voz="0"]')).toHaveAttribute("aria-checked", "true");
 
   await page.setInputFiles("#fichero", REFERENCIA);
   await expect(page.locator("#infoVoz")).toContainText("voz clonada", { timeout: 120_000 });
@@ -83,6 +84,7 @@ test("carga, elige voz, sintetiza y convierte en wasm", async ({ page }) => {
     mb_descarga_total: +mb_descarga_total.toFixed(1),
   };
   mkdirSync(resolve(AQUI, "../test-results"), { recursive: true });
+  await page.screenshot({ path: resolve(AQUI, "../test-results/demo.png"), fullPage: true });
   writeFileSync(resolve(AQUI, "../test-results/criterio5.json"), JSON.stringify(medido, null, 1));
   console.log(JSON.stringify(medido));
 });

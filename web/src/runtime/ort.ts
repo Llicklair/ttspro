@@ -30,15 +30,43 @@ export interface Sesion {
   bytes: number;
 }
 
+/** Bytes so far and total (0 when the server sends no length). */
+export type AlDescargar = (recibidos: number, total: number) => void;
+
+async function descargar(url: string, alDescargar?: AlDescargar): Promise<Uint8Array> {
+  const respuesta = await fetch(url);
+  if (!respuesta.ok) throw new Error(`no se pudo descargar ${url}: ${respuesta.status}`);
+  const total = Number(respuesta.headers.get("content-length") ?? 0);
+  if (!alDescargar || !respuesta.body) return new Uint8Array(await respuesta.arrayBuffer());
+  // Read the stream so the page can show real progress: these models are tens of
+  // megabytes and a frozen button for twenty seconds looks like a crash.
+  const lector = respuesta.body.getReader();
+  const trozos: Uint8Array[] = [];
+  let recibidos = 0;
+  while (true) {
+    const { done, value } = await lector.read();
+    if (done) break;
+    trozos.push(value);
+    recibidos += value.length;
+    alDescargar(recibidos, total);
+  }
+  const bytes = new Uint8Array(recibidos);
+  let pos = 0;
+  for (const t of trozos) {
+    bytes.set(t, pos);
+    pos += t.length;
+  }
+  return bytes;
+}
+
 export async function crearSesion(
   url: string,
   preferidos: Proveedor[] = ["webgpu", "wasm"],
+  alDescargar?: AlDescargar,
 ): Promise<Sesion> {
   configurar();
   const t0 = performance.now();
-  const respuesta = await fetch(url);
-  if (!respuesta.ok) throw new Error(`no se pudo descargar ${url}: ${respuesta.status}`);
-  const bytes = new Uint8Array(await respuesta.arrayBuffer());
+  const bytes = await descargar(url, alDescargar);
   const errores: string[] = [];
   for (const proveedor of preferidos) {
     if (proveedor === "webgpu" && !("gpu" in navigator)) {

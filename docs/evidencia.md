@@ -621,6 +621,35 @@ serían **148,8 MB**, aún por encima de los 110 del presupuesto, pero ahora qui
 español, que es lo que la voz base sabe. La siguiente palanca de peso ya no es el TTS: es
 cuantizar el conversor o recortar espeak.
 
+## 2026-09-05 · La cadena completa con la voz de Piper — CLONA A 0,34 SIN COMERSE LAS PALABRAS
+
+**Montaje.** Los tres grafos exportados (`tts.onnx` de Piper, `voz.onnx`, `conversor.onnx`) en
+Python sobre los mismos ficheros que sirve el navegador. Seis locutores destino de OpenSLR es con
+cinco audios de referencia cada uno.
+
+| | Coseno con el destino |
+|---|---|
+| Solo la voz base de Piper | 0,079 |
+| **Base + conversor** | **0,338** |
+| Techo (dos audios reales del destino) | 0,758 |
+
+**Sobre la inteligibilidad hay que separar dos medidas, porque dicen cosas distintas:**
+
+| Frases | WER base | WER convertida |
+|---|---|---|
+| Del corpus (conversacionales, nombres propios, cifras) | 0,153 mediana | 0,417 mediana |
+| Normales, tres frases limpias | 0,030 | **0,030–0,071 según `tau`, mediana 0,000** |
+
+Con texto normal el conversor **no se come las palabras**: la mediana es cero y el único error de
+la base es Whisper escribiendo "8 equipos" donde el texto decía "ocho". Con las frases del corpus,
+que ya le costaban a la voz base, el conversor sí las empeora. Barrido de `tau`: 0,15 da el mejor
+WER (0,030) y 0,6 la mejor similitud (0,385); 0,3, el defecto, queda en medio (0,063 y 0,380).
+
+**Consecuencia.** El producto funciona de punta a punta: español claro, voz reconocible, en el
+navegador y sin entrenar nada. Lo que queda medido y sin resolver es el **peso** (148,8 MB fp16
+contra 110 de presupuesto, con el conversor como pieza dominante) y la **similitud**, que en 0,34
+frente a un techo de 0,76 es un parecido, no una copia. El criterio 4 sigue sin pasar.
+
 ---
 
 ## Mediciones pendientes que deciden algo

@@ -19,9 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This licence covers the code in this repository. The model weights it downloads,
-the preset voice vectors in models/voces.json and the espeak-ng phonemizer the
-browser loads (GPL-3.0-or-later) carry their own terms: see THIRD_PARTY.md.

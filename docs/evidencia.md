@@ -879,11 +879,64 @@ que decide si la voz clonada es utilizable en directo.
 
 ---
 
+## 2026-09-06 · Paquetes de voz bajo demanda y recomendación por hardware
+
+**Montaje.** Marcos: adelante con las voces de Hugging Face desde la UI, y que detecte la gráfica y
+recomiende. Hecho como [ADR 0011](adr/0011-paquetes-de-voz-y-hardware.md): `ttspro.export.paquete`
+construye un paquete por voz (json con contrato propio y vector de voz base + onnx fp32/fp16),
+la página y la librería los descargan bajo demanda, y `hardware.ts` detecta, recomienda y calibra.
+
+**Ocho paquetes construidos con `--todas es`** (las de un solo locutor; sharvard tiene dos y queda
+fuera). Cada uno con sus 349 tensores, cero ops fuera de WebGPU:
+
+| Paquete | fp32 / fp16 | ms/frase CPU |
+|---|---|---|
+| es_ES-carlfm-x_low | 20,7 / 11,0 MB | 33 |
+| es_ES-davefx-medium | 63,3 / 32,3 MB | 43 |
+| es_MX-claude-high | 63,3 / 32,3 MB | 60 |
+| es_ES-mls_9972-low | 63,2 / 32,2 MB | 62 |
+| es_MX-ald-medium | 63,3 / 32,3 MB | 63 |
+| es_MX-ald-x_low | 20,8 / 11,0 MB | 66 |
+| es_ES-mls_10246-low | 63,2 / 32,2 MB | 129 |
+| es_AR-daniela-high | 114,0 / 57,6 MB | 210 |
+
+**Dos fallos que salieron construyéndolos.** (1) El contrato de un paquete copiaba las **formas**
+del catálogo, no del grafo: carlfm x_low tiene 96 canales de flow y el contrato decía 192, y
+`ruido_flow` reventaba al medir su voz base. El exportador escribe ahora las formas del grafo.
+(2) `test_terminado` no lo habría visto: mide la voz local. Es el tipo de cosa que solo aparece
+al construir la segunda voz.
+
+**Los assets de release de GitHub no valen como host.** `curl -D - -H "Origin: …"` sobre
+`releases/download/...`: el 302 y el 200 final de `release-assets.githubusercontent.com` no traen
+`Access-Control-Allow-Origin`, así que un `fetch` desde otro origen falla. La release `voces-v1`
+queda subida como archivo (25 ficheros) y los paquetes se sirven desde **GitHub Pages** (rama
+huérfana `voces`, 572 MB, sin el fp32 de daniela que supera los 100 MB por fichero). Hugging Face
+manda CORS correcto y es el destino natural cuando haya sesión.
+
+**En el navegador, Chromium headless, wasm fp32, paquetes servidos en local desde otro origen:**
+
+| | |
+|---|---|
+| Página: descarga carlfm y habla | 278 ms de TTS para 1,64 s de audio, RTF 0,17 |
+| Página: chat «una voz base por usuario» sobre local + carlfm | 4 leídos, dos voces |
+| Librería: `cargarVozBase("es_MX-claude-high")` + `predict` | 1,73 s de audio en 552 ms |
+| Librería: `predict(…, {vozBase: "local"})` | 0,96 s en 299 ms |
+| `recomendar()` en headless (sin WebGPU) | wasm fp32, 4 hilos |
+
+**Calibración.** `calibrar()` abre una sesión por candidato, calienta, mide una frase y descarta
+la que dé NaN. En headless solo hay un candidato (wasm). El número que decide, WebGPU fp32 en la
+GTX 1070 de Marcos, lo da el botón de la página; pendiente abajo.
+
+---
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una
 sube arriba como entrada con fecha.
 
+- **Calibración en la GTX 1070** (ADR 0011): pulsar «calibrar» en la página con Chrome real y anotar
+  tts y conversor en webgpu fp32 frente a wasm. Es el número que dice si la voz clonada vale para
+  directo; en headless no hay WebGPU y no se puede medir aquí.
 - **Modo chat con conversor en WebGPU** (ADR 0010): la política «una voz por usuario» pasa cada
   mensaje por el conversor; en wasm son ~2,9 s y la cola descarta. Medir velocidad (audio/síntesis)
   en la GTX 1070 con WebGPU fp32: si supera ×1 con margen, la voz por usuario es viable en directo.

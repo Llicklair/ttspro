@@ -32,12 +32,27 @@ import { Cola, type Estadisticas, type Mensaje } from "../runtime/cola.ts";
 import type { Contrato } from "../runtime/contrato.ts";
 import { convertir, vectorVoz } from "../runtime/conversor.ts";
 import {
+  type Hardware,
+  type Medida,
+  type Recomendacion,
+  calibrar as calibrarGrafo,
+  detectar,
+  recomendar,
+} from "../runtime/hardware.ts";
+import {
   type AlDescargar,
   type Proveedor,
   type Sesion,
   crearSesion,
   soportaF16,
 } from "../runtime/ort.ts";
+import {
+  type MetaPaquete,
+  URL_VOCES,
+  type VozBase,
+  cargarIndice,
+  cargarPaquete,
+} from "../runtime/paquetes.ts";
 import { type Opciones as OpcionesSintesis, sintetizar } from "../runtime/sintetizador.ts";
 
 export interface OpcionesCarga {
@@ -51,6 +66,11 @@ export interface OpcionesCarga {
   precision?: "" | ".fp16" | "auto";
   /** Download progress over all files. */
   alDescargar?: AlDescargar;
+  /**
+   * Where the voice packs live (indice.json + <clave>.json + <clave>.tts*.onnx).
+   * Default: the project's GitHub release. `null` disables packs.
+   */
+  vocesBase?: string | null;
 }
 
 export interface Voz {
@@ -73,6 +93,8 @@ export interface OpcionesPredict extends OpcionesSintesis {
   leerNombre?: boolean;
   /** Streams only: drop items that waited longer than this. Default 30 000. */
   maxEdadMs?: number;
+  /** Which base voice speaks: a pack key from `vocesBase`, or "local". Default the current one. */
+  vozBase?: string;
 }
 
 export interface Resultado {
@@ -105,6 +127,16 @@ export class TTS {
   vozActual: Float32Array | null = null;
   /** Provider each graph actually ran on. */
   readonly proveedores: { tts: Proveedor; conversor: Proveedor; voz: Proveedor };
+  /** Base voices available for download (packs), by key. Empty when offline or disabled. */
+  readonly vocesBase: Record<string, MetaPaquete> = {};
+  /** Key of the base voice that speaks by default: "local" or a loaded pack. */
+  vozBaseActual = "local";
+  /** What `detectar()` saw on this machine, and the rule's recommendation. */
+  readonly hardware: Hardware;
+  readonly recomendacion: Recomendacion;
+
+  private readonly bases = new Map<string, VozBase>();
+  private readonly cargando = new Map<string, Promise<VozBase>>();
 
   private constructor(
     private readonly contrato: Contrato,
@@ -112,6 +144,13 @@ export class TTS {
     private readonly sesionTts: Sesion,
     private readonly sesionConversor: Sesion,
     private readonly sesionVoz: Sesion,
+    private readonly rutas: {
+      base: string;
+      precision: "" | ".fp16";
+      proveedores: Proveedor[];
+      vocesBase: string | null;
+    },
+    hardware: Hardware,
   ) {
     this.voces = presets.voces;
     this.proveedores = {
@@ -119,14 +158,50 @@ export class TTS {
       conversor: sesionConversor.proveedor,
       voz: sesionVoz.proveedor,
     };
+    this.hardware = hardware;
+    this.recomendacion = recomendar(hardware);
+    this.bases.set("local", {
+      meta: {
+        clave: "local",
+        nombre: presets.base.locutor,
+        idioma: presets.base.idioma,
+        region: "",
+        calidad: "",
+        licencia: "",
+        parametros_M: 0,
+        MB: { fp32: 0, fp16: 0 },
+        ms_frase_cpu: 0,
+        ficheros: { fp32: "tts.onnx", fp16: "tts.fp16.onnx" },
+      },
+      sesion: sesionTts,
+      contrato,
+      vozBase: Float32Array.from(presets.base.voz),
+    });
+  }
+
+  /** What this machine can run, without loading anything. */
+  static hardware(): Promise<Hardware> {
+    return detectar();
+  }
+
+  /** The rule's recommendation for this machine, without loading anything. */
+  static async recomendar(): Promise<Recomendacion> {
+    return recomendar(await detectar());
   }
 
   static async cargar(opciones: OpcionesCarga = {}): Promise<TTS> {
     const base = (opciones.modelos ?? "/models/").replace(/\/?$/, "/");
     const espeak = opciones.espeak ?? "/espeak/espeak-ng.wasm";
     configurarEspeak({ locateFile: (f: string) => (f.endsWith(".wasm") ? espeak : f) });
+    const hardware = await detectar();
+    const regla = recomendar(hardware);
     const preferido = opciones.proveedor ?? "auto";
-    const proveedores: Proveedor[] = preferido === "auto" ? ["webgpu", "wasm"] : [preferido];
+    const proveedores: Proveedor[] =
+      preferido === "auto"
+        ? regla.proveedor === "webgpu"
+          ? ["webgpu", "wasm"]
+          : ["wasm"]
+        : [preferido];
     let precision = opciones.precision ?? "auto";
     if (precision === "auto") {
       precision = proveedores[0] === "webgpu" && (await soportaF16()) ? ".fp16" : "";
@@ -150,7 +225,104 @@ export class TTS {
       // the voice extractor carries a GRU, which WebGPU has no kernel for
       crearSesion(`${base}voz${precision}.onnx`, ["wasm"], progreso("voz")),
     ]);
-    return new TTS(contrato, voces, tts, conversor, voz);
+    const vocesBase = opciones.vocesBase === undefined ? URL_VOCES : opciones.vocesBase;
+    const salida = new TTS(
+      contrato,
+      voces,
+      tts,
+      conversor,
+      voz,
+      { base, precision, proveedores, vocesBase },
+      hardware,
+    );
+    if (vocesBase) {
+      try {
+        Object.assign(salida.vocesBase, await cargarIndice(vocesBase));
+      } catch {
+        // offline, or no packs published: the local base voice still works
+      }
+    }
+    return salida;
+  }
+
+  /** Download a base voice pack (once) and open its graph. Returns its meta. */
+  async cargarVozBase(clave: string, alDescargar?: AlDescargar): Promise<MetaPaquete> {
+    const hecha = this.bases.get(clave);
+    if (hecha) return hecha.meta;
+    if (!this.rutas.vocesBase) throw new Error("los paquetes de voz están desactivados");
+    let pendiente = this.cargando.get(clave);
+    if (!pendiente) {
+      pendiente = cargarPaquete(
+        this.rutas.vocesBase,
+        clave,
+        this.contrato,
+        this.rutas.precision,
+        this.rutas.proveedores,
+        alDescargar,
+      );
+      this.cargando.set(clave, pendiente);
+    }
+    const voz = await pendiente;
+    this.bases.set(clave, voz);
+    this.cargando.delete(clave);
+    return voz.meta;
+  }
+
+  /** Make a (loaded) base voice the default speaker. */
+  elegirVozBase(clave: string): void {
+    if (!this.bases.has(clave))
+      throw new Error(`voz base ${clave} no cargada: cargarVozBase antes`);
+    this.vozBaseActual = clave;
+  }
+
+  /** Keys of the base voices loaded and ready. */
+  get vocesBaseCargadas(): string[] {
+    return [...this.bases.keys()];
+  }
+
+  /**
+   * Measure, on this machine, how long ONE sentence takes on each candidate
+   * provider/precision, for the TTS and (optionally) the converter, and return
+   * the fastest. Slow (it opens sessions) and honest (it runs them).
+   */
+  async calibrar(
+    opciones: { conversor?: boolean; alProgresar?: (grafo: string, m: Medida) => void } = {},
+  ): Promise<{ tts: Medida[]; conversor: Medida[]; mejor: Medida | null }> {
+    const candidatos: Array<[Proveedor, "" | ".fp16"]> = this.hardware.webgpu
+      ? this.hardware.f16
+        ? [
+            ["webgpu", ".fp16"],
+            ["webgpu", ""],
+            ["wasm", ""],
+          ]
+        : [
+            ["webgpu", ""],
+            ["wasm", ""],
+          ]
+      : [["wasm", ""]];
+    const frase = "Hola a todos, bienvenidos al directo de hoy.";
+    const idioma = this.contrato.idiomas[0];
+    const tts = await calibrarGrafo(
+      (p) => `${this.rutas.base}tts${p}.onnx`,
+      async (s) => (await sintetizar(s, this.contrato, frase, idioma, null, {})).onda,
+      candidatos,
+      (m) => opciones.alProgresar?.("tts", m),
+    );
+    let conversor = { medidas: [] as Medida[], mejor: null as Medida | null };
+    if (opciones.conversor ?? true) {
+      const base = await sintetizar(this.sesionTts, this.contrato, frase, idioma, null, {});
+      const origen = Float32Array.from(this.presets.base.voz);
+      const destino = Float32Array.from(this.presets.voces[0]?.voz ?? this.presets.base.voz);
+      conversor = await calibrarGrafo(
+        (p) => `${this.rutas.base}conversor${p}.onnx`,
+        async (s) => (await convertir(s, this.contrato, base.onda, origen, destino, {})).onda,
+        candidatos,
+        (m) => opciones.alProgresar?.("conversor", m),
+      );
+    }
+    // the converter dominates when it runs; otherwise the TTS decides
+    const mejor = conversor.mejor ?? tts.mejor;
+    return { tts: tts.medidas, conversor: conversor.medidas, mejor };
   }
 
   /** Languages the base voice speaks. */
@@ -252,12 +424,17 @@ export class TTS {
     if (!dicho.trim()) throw new Error("predict: nothing readable in the text");
     if (usuario && (opciones.leerNombre ?? true)) dicho = `${nombreLegible(usuario)}: ${dicho}`;
     const t0 = performance.now();
+    const clave = opciones.vozBase ?? this.vozBaseActual;
+    if (!this.bases.has(clave)) await this.cargarVozBase(clave);
+    const hablante = this.bases.get(clave) as VozBase;
     const base = await sintetizar(
-      this.sesionTts,
-      this.contrato,
+      hablante.sesion,
+      hablante.contrato,
       dicho,
-      this.contrato.idiomas[0],
-      this.presets.base.embedding_tts ? Float32Array.from(this.presets.base.embedding_tts) : null,
+      hablante.contrato.idiomas[0],
+      clave === "local" && this.presets.base.embedding_tts
+        ? Float32Array.from(this.presets.base.embedding_tts)
+        : null,
       opciones,
     );
     let onda = base.onda;
@@ -268,7 +445,7 @@ export class TTS {
         this.sesionConversor,
         this.contrato,
         base.onda,
-        Float32Array.from(this.presets.base.voz),
+        hablante.vozBase,
         voz,
         { tau: opciones.tau, semilla: opciones.semilla },
       );

@@ -227,15 +227,26 @@
             </select>
           </label>
           <button id="cargar" class="principal">cargar modelos</button>
+          <button id="calibrar" disabled title="mide una frase en cada proveedor y elige el más rápido">calibrar</button>
         </div>
         <div class="barra"><i id="progreso"></i></div>
         <p id="estado" class="mono">sin cargar</p>
+        <p id="hardware" class="mono">detectando hardware…</p>
+        <p id="calibracion" class="mono" hidden></p>
       </section>
 
       <section class="panel">
         <div class="cabecera">
           <span class="num">2</span><h2>Voz</h2>
           <span class="pastilla" id="pastilla-voz">sin elegir</span>
+        </div>
+        <div class="fila" style="margin-bottom:.6rem">
+          <label class="campo">voz base
+            <select id="vozBase"><option value="local" selected>local</option></select>
+          </label>
+          <button id="descargarVozBase" disabled>descargar y usar</button>
+          <button id="descargarTodas" disabled title="todas las del índice, para «una voz base por usuario»">descargar todas</button>
+          <span id="infoVozBase" class="mono"></span>
         </div>
         <div class="voces" id="voces" role="radiogroup" aria-label="voces disponibles"></div>
         <div class="fila" style="margin-top: .9rem">
@@ -326,7 +337,8 @@
             <select id="politica">
               <option value="base" selected>voz base (rápida)</option>
               <option value="elegida">la voz elegida arriba</option>
-              <option value="usuario">una por usuario</option>
+              <option value="usuario">una por usuario (conversor)</option>
+              <option value="baseUsuario">una voz base por usuario (rápida)</option>
             </select>
           </label>
           <label class="campo"><input id="leerNombre" type="checkbox" checked /> leer el nombre</label>

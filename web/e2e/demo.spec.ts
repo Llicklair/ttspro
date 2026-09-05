@@ -290,3 +290,147 @@ test("librería: import ttspro.js, clonar desde un fichero, predict de texto y d
     servidor.close();
   }
 });
+
+// ---------------------------------------------------------------- voice packs (ADR 0011)
+//
+// The packs built by ttspro.export.paquete, served from a local folder on another
+// origin (as the GitHub release will be): the page lists them, downloads one on
+// demand, speaks with it, and "una voz base por usuario" spreads users over them.
+
+function servirCarpeta(carpeta: string) {
+  const servidor = createServer((req, res) => {
+    const nombre = decodeURIComponent((req.url ?? "/").split("?")[0].slice(1));
+    const ruta = resolve(carpeta, nombre);
+    if (!nombre || !existsSync(ruta)) {
+      res.writeHead(404, { "Access-Control-Allow-Origin": "*" }).end();
+      return;
+    }
+    const datos = readFileSync(ruta);
+    res.writeHead(200, {
+      "Content-Type": nombre.endsWith(".json") ? "application/json" : "application/octet-stream",
+      "Content-Length": datos.length,
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(datos);
+  });
+  return new Promise<typeof servidor>((r) => servidor.listen(0, "127.0.0.1", () => r(servidor)));
+}
+
+const PAQUETES = resolve(AQUI, "../../paquetes");
+
+test("paquetes de voz: la página descarga una voz base y habla con ella", async ({ page }) => {
+  test.skip(!existsSync(resolve(PAQUETES, "indice.json")), "run `ttspro.export.paquete` first");
+  const servidor = await servirCarpeta(PAQUETES);
+  const puerto = (servidor.address() as { port: number }).port;
+  try {
+    page.on("pageerror", (e) => console.log("pageerror:", e.message));
+    await page.goto(`/?voces=http://127.0.0.1:${puerto}/`);
+    await page.selectOption("#precision", PRECISION);
+    await page.selectOption("#proveedor", "wasm");
+    await page.click("#cargar");
+    await page.waitForFunction(() => document.querySelectorAll(".voz").length > 0, null, {
+      timeout: 240_000,
+    });
+    // the index arrived: the selector lists the packs
+    await page.waitForFunction(
+      () => document.querySelectorAll("#vozBase option").length > 1,
+      null,
+      {
+        timeout: 30_000,
+      },
+    );
+    const hardware = await page.locator("#hardware").innerText();
+    expect(hardware).toContain("recomendado");
+    await page.selectOption("#vozBase", "es_ES-carlfm-x_low");
+    await page.click("#descargarVozBase");
+    await expect(page.locator("#infoVozBase")).toContainText("carlfm", { timeout: 120_000 });
+    await page.fill("#texto", "Esta frase la dice una voz base descargada.");
+    await page.click("#sinConvertir");
+    await page.waitForFunction(
+      () => document.getElementById("medidas")?.textContent?.includes("RTF"),
+      null,
+      {
+        timeout: 60_000,
+      },
+    );
+    const medidas = await page.locator("#medidas").innerText();
+    console.log("carlfm:", medidas);
+    expect(medidas).toContain("sin convertir");
+    // chat: one base voice per user, over the two loaded (local + carlfm)
+    await page.selectOption("#politica", "baseUsuario");
+    await page.click("#simular");
+    await page.waitForFunction(
+      () =>
+        (
+          window as unknown as { __ttspro_chat: { estadisticas: () => { reproducidos: number } } }
+        ).__ttspro_chat.estadisticas().reproducidos >= 4,
+      null,
+      { timeout: 120_000 },
+    );
+  } finally {
+    servidor.close();
+  }
+});
+
+test("librería: paquetes de voz por URL, cargarVozBase y predict con vozBase", async ({ page }) => {
+  test.skip(!existsSync(resolve(AQUI, "../dist/lib/ttspro.js")), "run `npm run build:lib` first");
+  test.skip(!existsSync(resolve(PAQUETES, "indice.json")), "run `ttspro.export.paquete` first");
+  const paquetes = await servirCarpeta(PAQUETES);
+  const servidor = (await servir(0)) as { address: () => { port: number }; close: () => void };
+  const base = `http://127.0.0.1:${servidor.address().port}`;
+  const urlPaquetes = `http://127.0.0.1:${(paquetes.address() as { port: number }).port}/`;
+  try {
+    page.on("pageerror", (e) => console.log("pageerror:", e.message));
+    await page.goto(`${base}/`);
+    await page.waitForFunction(() => Boolean((window as unknown as { tts?: unknown }).tts), null, {
+      timeout: 240_000,
+    });
+    const medido = await page.evaluate(async (url) => {
+      const { TTS } = (await import("/ttspro.js")) as {
+        TTS: {
+          cargar: (o: unknown) => Promise<{
+            hardware: { webgpu: boolean };
+            recomendacion: { proveedor: string; precision: string };
+            vocesBase: Record<string, { MB: { fp16: number } }>;
+            cargarVozBase: (c: string) => Promise<{ clave: string; ms_frase_cpu: number }>;
+            elegirVozBase: (c: string) => void;
+            vocesBaseCargadas: string[];
+            predict: (
+              t: string,
+              o?: unknown,
+            ) => Promise<{ onda: Float32Array; sampleRate: number; ms: number }>;
+          }>;
+        };
+      };
+      const t = await TTS.cargar({
+        modelos: "/models/",
+        espeak: "/espeak/espeak-ng.wasm",
+        proveedor: "wasm",
+        precision: "",
+        vocesBase: url,
+      });
+      const meta = await t.cargarVozBase("es_MX-claude-high");
+      t.elegirVozBase("es_MX-claude-high");
+      const claude = await t.predict("hola desde una voz base descargada");
+      const local = await t.predict("y esta es la local", { vozBase: "local" });
+      return {
+        indice: Object.keys(t.vocesBase).length,
+        meta,
+        cargadas: t.vocesBaseCargadas,
+        recomendacion: t.recomendacion,
+        webgpu: t.hardware.webgpu,
+        claude: { segundos: claude.onda.length / claude.sampleRate, ms: claude.ms },
+        local: { segundos: local.onda.length / local.sampleRate, ms: local.ms },
+      };
+    }, urlPaquetes);
+    console.log(JSON.stringify(medido));
+    expect(medido.indice).toBeGreaterThanOrEqual(8);
+    expect(medido.cargadas).toEqual(["local", "es_MX-claude-high"]);
+    expect(medido.claude.segundos).toBeGreaterThan(1);
+    expect(medido.local.segundos).toBeGreaterThan(0.5);
+    expect(["webgpu", "wasm"]).toContain(medido.recomendacion.proveedor);
+  } finally {
+    paquetes.close();
+    servidor.close();
+  }
+});

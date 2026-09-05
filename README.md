@@ -59,6 +59,34 @@ For the Python side of the text frontend you also need espeak-ng 1.52 installed 
 (`winget install eSpeak-NG.eSpeak-NG`, or `apt install espeak-ng`); the browser uses the WASM build
 from npm. A test holds the two to identical output.
 
+## Base voices and hardware
+
+The base voice is not fixed any more. Eight Spanish Piper voices (MIT) are ported and published as
+**voice packs** ([ADR 0011](docs/adr/0011-paquetes-de-voz-y-hardware.md)): the page lists them,
+downloads one on demand, and speaks with it. Each pack carries its own contract (symbol tables
+differ between voices) and its own base-voice vector for the converter. In chat mode, *una voz base
+por usuario* spreads the chat over the downloaded voices with no converter at all, which is the
+fast and clear way to give people different voices.
+
+| Pack | Quality | fp16 | ms / sentence, CPU |
+|---|---|---|---|
+| es_ES-carlfm-x_low | very low | 11.0 MB | 33 |
+| es_ES-davefx-medium (the local default) | medium | 32.3 MB | 43 |
+| es_MX-claude-high | high | 32.3 MB | 60 |
+| es_MX-ald-medium · es_ES-mls_9972-low · es_ES-mls_10246-low · es_MX-ald-x_low | | 11–32 MB | 62–129 |
+| es_AR-daniela-high | high | 57.6 MB | 210 |
+
+Packs are served from GitHub Pages (`https://llicklair.github.io/ttspro/`); a release cannot host
+them because its assets send no CORS header. Point the page elsewhere with `?voces=<url>`, the
+library with `TTS.cargar({ vocesBase })`, and build your own with `uv run python -m
+ttspro.export.paquete --todas es`.
+
+**Hardware.** The page detects WebGPU, the adapter, `shader-f16`, threads and isolation, states
+the rule's recommendation (WebGPU + f16 → fp16 on the GPU; WebGPU without f16, such as a GTX 1070
+→ fp32 on the GPU; no WebGPU → wasm fp32) and offers **calibrar**, which measures one sentence
+through the TTS and the converter on every candidate and keeps the fastest. Library:
+`TTS.hardware()`, `TTS.recomendar()`, `tts.calibrar()`.
+
 ## Chat mode
 
 The page's fourth panel reads a Twitch chat aloud ([ADR 0010](docs/adr/0010-modo-chat-para-twitch.md)).
@@ -92,6 +120,10 @@ await tts.reproducir(r);
 
 // a stream: any iterable, async iterable or ReadableStream of strings or { usuario, texto }
 for await (const r of tts.predict(mensajes, { chat: true, reproducir: true })) console.log(r.texto);
+
+await tts.cargarVozBase("es_MX-claude-high");     // a pack, downloaded once; tts.vocesBase lists them
+tts.elegirVozBase("es_MX-claude-high");            // or per call: predict(texto, { vozBase })
+const c = await tts.calibrar();                    // measured ms per provider; c.mejor is the pick
 ```
 
 The stream form runs through the same queue as the demo: it synthesizes ahead of playback and

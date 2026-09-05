@@ -48,7 +48,11 @@ def fonemas_de_frase(texto: str, idioma: str) -> str:
     return " ".join(elementos)
 
 
-def ids(fonemas: str) -> list[int]:
+def _tabla_de(cfg: dict) -> dict[str, int]:
+    return {s: i for i, s in enumerate(cfg["tabla"]) if s != ""}
+
+
+def ids(fonemas: str, cfg: dict | None = None) -> list[int]:
     """One id per character, wrapped as the model expects (mirrored in tokens.ts).
 
     The contract decides the shape of the sequence, because it is part of what the
@@ -58,8 +62,10 @@ def ids(fonemas: str) -> list[int]:
     - `blank_al_inicio`: pad BEFORE each symbol (coqui) or AFTER it (Piper);
     - `bos`/`eos`: wrap the sentence (Piper's `^` and `$`).
     """
-    t = tabla()
-    cfg = simbolos()
+    # `cfg` is a voice's own symbol table (a voice PACK, ADR 0011); the default is
+    # the table of models/contrato.json, mirrored by tokens.ts taking `contrato.simbolos`.
+    t = tabla() if cfg is None else _tabla_de(cfg)
+    cfg = simbolos() if cfg is None else cfg
     equivalencias = cfg.get("equivalencias") or {}
     if equivalencias:
         fonemas = "".join(equivalencias.get(c, c) for c in fonemas)
@@ -88,6 +94,6 @@ def ids(fonemas: str) -> list[int]:
     return salida
 
 
-def tokenizar(texto: str, idioma: str) -> tuple[str, list[int]]:
+def tokenizar(texto: str, idioma: str, cfg: dict | None = None) -> tuple[str, list[int]]:
     fonemas = fonemas_de_frase(texto, idioma)
-    return fonemas, ids(fonemas)
+    return fonemas, ids(fonemas, cfg)

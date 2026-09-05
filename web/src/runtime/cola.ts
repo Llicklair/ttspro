@@ -21,6 +21,8 @@ export interface Mensaje {
   usuario?: string;
   /** Voice vector for the converter, or null for the base voice. */
   voz?: Float32Array | null;
+  /** Which base voice speaks (a pack key); undefined for the default one. */
+  vozBase?: string;
   /** performance.now() when it arrived. Set by `encolar` if absent. */
   llegada?: number;
 }

@@ -173,6 +173,12 @@ def main() -> None:
     ap.add_argument("--checkpoint", type=Path, default=None)
     ap.add_argument("--salida", type=Path, default=MODELOS / "tts.onnx")
     ap.add_argument(
+        "--contrato",
+        type=Path,
+        default=MODELOS / "contrato.json",
+        help="contract to sync and write; a voice pack keeps its own (copied from models/)",
+    )
+    ap.add_argument(
         "--upsample-initial", type=int, default=None, help="override decoder width to measure size"
     )
     ap.add_argument(
@@ -186,10 +192,15 @@ def main() -> None:
     # A ported voice carries its own symbol table (Piper has its own map and wraps
     # the sentence in ^ … $). The contract must describe what is IN models/, so the
     # export syncs it — and says so, because it changes what the frontend emits.
+    ruta_contrato = args.contrato
+    if not ruta_contrato.exists():
+        ruta_contrato.parent.mkdir(parents=True, exist_ok=True)
+        ruta_contrato.write_text(
+            (MODELOS / "contrato.json").read_text(encoding="utf-8"), encoding="utf-8"
+        )
     if args.checkpoint is not None:
         estado_previo = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
         if "simbolos" in estado_previo:
-            ruta_contrato = MODELOS / "contrato.json"
             contrato = json.loads(ruta_contrato.read_text(encoding="utf-8"))
             cambios = {}
             if contrato["simbolos"] != estado_previo["simbolos"]:
@@ -217,13 +228,20 @@ def main() -> None:
     # has no `embedding` and a monolingual one has no `idioma`. The contract has to
     # say what the graph really takes, and the browser builds its feed from it.
     reales = {i.name for i in grafo.graph.input}
-    ruta_contrato = MODELOS / "contrato.json"
     contrato = json.loads(ruta_contrato.read_text(encoding="utf-8"))
     catalogo = {e["nombre"]: e for e in CONTRATO["grafos"]["tts"]["entradas"]}
-    declaradas = [catalogo[n] for n in ENTRADAS_COMPLETAS if n in reales and n in catalogo]
-    if [e["nombre"] for e in contrato["grafos"]["tts"]["entradas"]] != [
-        e["nombre"] for e in declaradas
-    ]:
+    # Shapes come from the GRAPH, not from the catalogue: a smaller voice (an x_low
+    # Piper voice has 96 flow channels, not 192) declares its own `ruido_flow`.
+    formas = {
+        i.name: [d.dim_param or d.dim_value for d in i.type.tensor_type.shape.dim]
+        for i in grafo.graph.input
+    }
+    declaradas = [
+        {**catalogo[n], "forma": formas[n]}
+        for n in ENTRADAS_COMPLETAS
+        if n in reales and n in catalogo
+    ]
+    if contrato["grafos"]["tts"]["entradas"] != declaradas:
         contrato["grafos"]["tts"]["entradas"] = declaradas
         ruta_contrato.write_text(
             json.dumps(contrato, ensure_ascii=False, indent=1), encoding="utf-8"

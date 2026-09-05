@@ -34,6 +34,7 @@ uv run python -m ttspro.export.piper --onnx <voz.onnx> --salida runs/piper_es/G_
 uv run python -m ttspro.export.conversor                        # models/voz.onnx y conversor.onnx (ADR 0007)
 uv run python -m ttspro.train.evaluar --checkpoint runs/X/G_NNNN.pt --cache cache/*  # WER y SECS
 uv run python -m ttspro.export.voces --cache cache/openslr_es cache/vctk  # presets del demo
+uv run python -m ttspro.export.paquete --todas es   # paquetes de voz base (ADR 0011) en paquetes/; se publican en la rama `voces` (GitHub Pages)
 ```
 
 El afinado real lleva la consistencia de locutor (`--scl 9`), que es lo que convierte "una voz"
@@ -50,6 +51,7 @@ cd web && npx playwright test -g "modo chat"   # ADR 0010: veinte mensajes por l
 cd web && npx playwright test -g "fuente externa"   # otra aplicacion (streex/Rails) alimenta la cola por SSE desde otro origen
 cd web && npm run build:lib && npm run servir   # la libreria (dist/lib/ttspro.js) y la pagina ejemplo/ en http://127.0.0.1:8080
 cd web && npx playwright test -g "libreria"   # import ttspro.js, clonar desde fichero, predict de texto y de stream (necesita build:lib)
+cd web && npx playwright test -g "paquetes"   # voz base descargada bajo demanda, en la pagina y en la libreria (necesita paquetes/ y build:lib)
 ```
 
 ## Gates

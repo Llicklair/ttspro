@@ -40,3 +40,6 @@ mapa.html
 Thumbs.db
 .idea/
 .vscode/
+
+# Voice packs built by ttspro.export.paquete: hosted as release assets, never in git
+paquetes/

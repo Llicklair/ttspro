@@ -12,7 +12,15 @@ import { aWav, decodificar, grabarPCM, reproducir } from "../runtime/audio.ts";
 import { Cola, type Estadisticas, type Mensaje } from "../runtime/cola.ts";
 import type { Contrato } from "../runtime/contrato.ts";
 import { convertir, vectorVoz } from "../runtime/conversor.ts";
+import { type Hardware, calibrar, describir, detectar, recomendar } from "../runtime/hardware.ts";
 import { type Proveedor, type Sesion, crearSesion, hilos, soportaF16 } from "../runtime/ort.ts";
+import {
+  type MetaPaquete,
+  URL_VOCES,
+  type VozBase,
+  cargarIndice,
+  cargarPaquete,
+} from "../runtime/paquetes.ts";
 import { sintetizar } from "../runtime/sintetizador.ts";
 import { conectarSSE, conectarWebSocket, escucharPostMessage } from "./fuentes.ts";
 import { conectarTwitch } from "./twitch.ts";
@@ -55,6 +63,15 @@ let grafoVoz: Sesion | null = null;
 let grafoConversor: Sesion | null = null;
 let vozDestino: Float32Array | null = null;
 let ultima: { onda: Float32Array; sr: number } | null = null;
+// Base voices: "local" is models/tts.onnx; the rest are packs downloaded on demand
+// (ADR 0011). Each carries its own contract and base-voice vector.
+const bases = new Map<string, VozBase>();
+let baseActual = "local";
+let indicePaquetes: Record<string, MetaPaquete> = {};
+let hardware: Hardware | null = null;
+let precisionCargada: "" | ".fp16" = "";
+let proveedoresCargados: Proveedor[] = ["wasm"];
+const hablanteActual = () => bases.get(baseActual) as VozBase;
 const visor = new Visor($<HTMLCanvasElement>("onda"));
 visor.poner("vacio");
 
@@ -93,6 +110,29 @@ async function cargarModelos(): Promise<void> {
     grafoVoz = await crearSesion(`/models/voz${precision}.onnx`, ["wasm"], progreso("voz"));
     tts = t;
     grafoConversor = c;
+    precisionCargada = precision as "" | ".fp16";
+    proveedoresCargados = proveedores;
+    bases.clear();
+    const presets = voces as Voces;
+    bases.set("local", {
+      meta: {
+        clave: "local",
+        nombre: presets.base.locutor,
+        idioma: presets.base.idioma,
+        region: "",
+        calidad: "",
+        licencia: "",
+        parametros_M: 0,
+        MB: { fp32: 0, fp16: 0 },
+        ms_frase_cpu: 0,
+        ficheros: { fp32: "tts.onnx", fp16: "tts.fp16.onnx" },
+      },
+      sesion: t,
+      contrato,
+      vozBase: Float32Array.from(presets.base.voz),
+    });
+    baseActual = "local";
+    ($("vozBase") as HTMLSelectElement).value = "local";
     barra.style.width = "100%";
     const mb = ((t.bytes + c.bytes + grafoVoz.bytes) / 1e6).toFixed(1);
     estado.textContent = "preparando fonemizador y voces…";
@@ -106,6 +146,9 @@ async function cargarModelos(): Promise<void> {
       "conectar",
       "enviar",
       "simular",
+      "calibrar",
+      "descargarVozBase",
+      "descargarTodas",
     ])
       ($(id) as HTMLButtonElement).disabled = false;
     const resumen = `tts ${t.proveedor} · conversor ${c.proveedor} · voz ${grafoVoz.proveedor} · ${mb} MB · ${hilos()} hilo(s) wasm · aislado=${crossOriginIsolated}`;
@@ -226,12 +269,15 @@ async function hablar(conConversor: boolean): Promise<void> {
   visor.poner("trabajando");
   try {
     const semilla = Number(($("semilla") as HTMLInputElement).value);
+    const hablante = hablanteActual();
     const base = await sintetizar(
-      tts,
-      contrato,
+      hablante.sesion,
+      hablante.contrato,
       ($("texto") as HTMLTextAreaElement).value,
-      ($("idioma") as HTMLSelectElement).value,
-      voces.base.embedding_tts ? Float32Array.from(voces.base.embedding_tts) : null,
+      hablante.contrato.idiomas[0],
+      baseActual === "local" && voces.base.embedding_tts
+        ? Float32Array.from(voces.base.embedding_tts)
+        : null,
       {
         noise_scale: Number(($("noise") as HTMLInputElement).value),
         noise_scale_w: Number(($("noise_w") as HTMLInputElement).value),
@@ -243,14 +289,10 @@ async function hablar(conConversor: boolean): Promise<void> {
     let sr = base.sampleRate;
     let msConv = 0;
     if (conConversor && grafoConversor && vozDestino) {
-      const r = await convertir(
-        grafoConversor,
-        contrato,
-        base.onda,
-        Float32Array.from(voces.base.voz),
-        vozDestino,
-        { tau: Number(($("tau") as HTMLInputElement).value), semilla },
-      );
+      const r = await convertir(grafoConversor, contrato, base.onda, hablante.vozBase, vozDestino, {
+        tau: Number(($("tau") as HTMLInputElement).value),
+        semilla,
+      });
       onda = r.onda;
       sr = r.sampleRate;
       msConv = r.ms;
@@ -357,12 +399,15 @@ function vozParaUsuario(usuario: string): Float32Array | null {
 async function sintetizarMensaje(m: Mensaje) {
   if (!tts || !voces) return null;
   const semilla = Number(($("semilla") as HTMLInputElement).value);
+  const hablante = bases.get(m.vozBase ?? baseActual) ?? hablanteActual();
   const base = await sintetizar(
-    tts,
-    contrato,
+    hablante.sesion,
+    hablante.contrato,
     m.texto,
-    ($("idioma") as HTMLSelectElement).value,
-    voces.base.embedding_tts ? Float32Array.from(voces.base.embedding_tts) : null,
+    hablante.contrato.idiomas[0],
+    hablante.meta.clave === "local" && voces.base.embedding_tts
+      ? Float32Array.from(voces.base.embedding_tts)
+      : null,
     {
       noise_scale: Number(($("noise") as HTMLInputElement).value),
       noise_scale_w: Number(($("noise_w") as HTMLInputElement).value),
@@ -371,18 +416,19 @@ async function sintetizarMensaje(m: Mensaje) {
     },
   );
   if (!m.voz || !grafoConversor) return { onda: base.onda, sampleRate: base.sampleRate };
-  const r = await convertir(
-    grafoConversor,
-    contrato,
-    base.onda,
-    Float32Array.from(voces.base.voz),
-    m.voz,
-    {
-      tau: Number(($("tau") as HTMLInputElement).value),
-      semilla,
-    },
-  );
+  const r = await convertir(grafoConversor, contrato, base.onda, hablante.vozBase, m.voz, {
+    tau: Number(($("tau") as HTMLInputElement).value),
+    semilla,
+  });
   return { onda: r.onda, sampleRate: r.sampleRate };
+}
+
+function vozBaseParaUsuario(usuario: string): string | undefined {
+  const claves = [...bases.keys()];
+  if (claves.length < 2) return undefined;
+  let h = 0;
+  for (const c of usuario) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return claves[h % claves.length];
 }
 
 const pintarStats = (s: Estadisticas, evento: string, m?: Mensaje) => {
@@ -421,8 +467,9 @@ function recibir(usuario: string, textoBruto: string): void {
   const politica = ($("politica") as HTMLSelectElement).value;
   const voz =
     politica === "elegida" ? vozDestino : politica === "usuario" ? vozParaUsuario(usuario) : null;
+  const vozBase = politica === "baseUsuario" ? vozBaseParaUsuario(usuario) : undefined;
   const nombre = ($("leerNombre") as HTMLInputElement).checked ? `${nombreLegible(usuario)}: ` : "";
-  const aceptado = cola.encolar({ texto: nombre + texto, usuario, voz });
+  const aceptado = cola.encolar({ texto: nombre + texto, usuario, voz, vozBase });
   if (aceptado)
     anotar(usuario, texto, texto === textoBruto ? "" : `de: ${textoBruto.slice(0, 60)}`);
 }
@@ -543,3 +590,185 @@ $("conectar").addEventListener("click", () => {
   recibir,
   estadisticas: () => cola.estadisticas,
 };
+
+// ---------------------------------------------------------------- hardware (ADR 0011)
+//
+// Detect on load and say what the rule recommends; "calibrar" measures instead of
+// guessing: one sentence through the TTS and the converter on each candidate.
+
+void (async () => {
+  hardware = await detectar();
+  const regla = recomendar(hardware);
+  $("hardware").textContent =
+    `${describir(hardware)} · recomendado: ${regla.proveedor} ${regla.precision || "fp32"} (${regla.motivo})`;
+  const guardada = localStorage.getItem("ttspro-calibracion");
+  if (guardada) {
+    const c = JSON.parse(guardada) as { proveedor: Proveedor; precision: "" | ".fp16" };
+    ($("proveedor") as HTMLSelectElement).value = c.proveedor;
+    ($("precision") as HTMLSelectElement).value = c.precision;
+    log(`calibración guardada: ${c.proveedor} ${c.precision || "fp32"}`);
+  } else if (($("proveedor") as HTMLSelectElement).value === "auto") {
+    ($("proveedor") as HTMLSelectElement).value = regla.proveedor;
+    ($("precision") as HTMLSelectElement).value = regla.precision;
+  }
+})();
+
+$("calibrar").addEventListener("click", async () => {
+  if (!hardware || !voces) return;
+  const boton = $("calibrar") as HTMLButtonElement;
+  boton.disabled = true;
+  const salida = $("calibracion");
+  salida.hidden = false;
+  salida.textContent = "calibrando…";
+  const candidatos: Array<[Proveedor, "" | ".fp16"]> = hardware.webgpu
+    ? hardware.f16
+      ? [
+          ["webgpu", ".fp16"],
+          ["webgpu", ""],
+          ["wasm", ""],
+        ]
+      : [
+          ["webgpu", ""],
+          ["wasm", ""],
+        ]
+    : [["wasm", ""]];
+  const frase = "Hola a todos, bienvenidos al directo de hoy.";
+  const filas: string[] = [];
+  const pinta = () => {
+    salida.textContent = filas.join("\n");
+  };
+  try {
+    const tts = await calibrar(
+      (p) => `/models/tts${p}.onnx`,
+      async (s) => (await sintetizar(s, contrato, frase, contrato.idiomas[0], null, {})).onda,
+      candidatos,
+      (m) => {
+        filas.push(
+          `tts ${m.proveedor} ${m.precision || "fp32"}: ${m.ms === null ? m.error : `${m.ms.toFixed(0)} ms`}`,
+        );
+        pinta();
+      },
+    );
+    const baseOnda = (
+      await sintetizar(
+        hablanteActual().sesion,
+        hablanteActual().contrato,
+        frase,
+        contrato.idiomas[0],
+        null,
+        {},
+      )
+    ).onda;
+    const origen = hablanteActual().vozBase;
+    const destino = Float32Array.from(voces.voces[0]?.voz ?? voces.base.voz);
+    const conv = await calibrar(
+      (p) => `/models/conversor${p}.onnx`,
+      async (s) => (await convertir(s, contrato, baseOnda, origen, destino, {})).onda,
+      candidatos,
+      (m) => {
+        filas.push(
+          `conversor ${m.proveedor} ${m.precision || "fp32"}: ${m.ms === null ? m.error : `${m.ms.toFixed(0)} ms`}`,
+        );
+        pinta();
+      },
+    );
+    const mejor = conv.mejor ?? tts.mejor;
+    if (mejor) {
+      filas.push(
+        `→ mejor: ${mejor.proveedor} ${mejor.precision || "fp32"} (recarga los modelos para aplicarlo)`,
+      );
+      ($("proveedor") as HTMLSelectElement).value = mejor.proveedor;
+      ($("precision") as HTMLSelectElement).value = mejor.precision;
+      localStorage.setItem(
+        "ttspro-calibracion",
+        JSON.stringify({ proveedor: mejor.proveedor, precision: mejor.precision }),
+      );
+    }
+    pinta();
+    log(`calibración: ${filas.join(" · ")}`);
+  } catch (err) {
+    salida.textContent = `calibración: ${String(err)}`;
+  } finally {
+    boton.disabled = false;
+  }
+});
+
+// ---------------------------------------------------------------- base voice packs (ADR 0011)
+
+const selectorBase = $("vozBase") as HTMLSelectElement;
+// `?voces=<url>` points the page at another pack host (a local folder in the e2e).
+const urlVoces = new URLSearchParams(location.search).get("voces") ?? URL_VOCES;
+
+async function pintarIndice(): Promise<void> {
+  try {
+    indicePaquetes = await cargarIndice(urlVoces);
+  } catch (err) {
+    $("infoVozBase").textContent = `sin índice de voces (${String(err).slice(0, 60)})`;
+    return;
+  }
+  for (const m of Object.values(indicePaquetes)) {
+    const o = document.createElement("option");
+    o.value = m.clave;
+    o.textContent = `${m.nombre} · ${m.calidad} · ${m.MB.fp16} MB`;
+    selectorBase.appendChild(o);
+  }
+  $("infoVozBase").textContent = `${Object.keys(indicePaquetes).length} voces base descargables`;
+}
+void pintarIndice();
+
+async function descargarBase(clave: string): Promise<void> {
+  if (bases.has(clave)) return;
+  const barra = $("progreso");
+  pastilla("modelos", `descargando ${clave}…`, "trabajando");
+  const voz = await cargarPaquete(
+    urlVoces,
+    clave,
+    contrato,
+    precisionCargada,
+    proveedoresCargados,
+    (r, t) => {
+      if (t) barra.style.width = `${Math.min(100, (100 * r) / t).toFixed(1)}%`;
+    },
+  );
+  bases.set(clave, voz);
+  pastilla("modelos", `${precisionCargada || "fp32"} · ${voz.sesion.proveedor}`, "listo");
+  log(
+    `voz base ${clave}: ${(voz.sesion.bytes / 1e6).toFixed(1)} MB en ${voz.sesion.ms_carga.toFixed(0)} ms, ${voz.sesion.proveedor}`,
+  );
+}
+
+selectorBase.addEventListener("change", () => {
+  if (bases.has(selectorBase.value)) {
+    baseActual = selectorBase.value;
+    $("infoVozBase").textContent = `voz base: ${hablanteActual().meta.nombre}`;
+  } else {
+    $("infoVozBase").textContent = "no descargada: pulsa «descargar y usar»";
+  }
+});
+
+$("descargarVozBase").addEventListener("click", async () => {
+  if (!tts) return;
+  const clave = selectorBase.value;
+  try {
+    await descargarBase(clave);
+    baseActual = clave;
+    $("infoVozBase").textContent = `voz base: ${hablanteActual().meta.nombre}`;
+  } catch (err) {
+    log(`voz base ${clave}: ${String(err)}`);
+    $("infoVozBase").textContent = `error: ${String(err).slice(0, 80)}`;
+  }
+});
+
+$("descargarTodas").addEventListener("click", async () => {
+  if (!tts) return;
+  const boton = $("descargarTodas") as HTMLButtonElement;
+  boton.disabled = true;
+  try {
+    for (const clave of Object.keys(indicePaquetes)) await descargarBase(clave);
+    $("infoVozBase").textContent = `${bases.size} voces base cargadas`;
+  } catch (err) {
+    log(`voces base: ${String(err)}`);
+  } finally {
+    boton.disabled = false;
+  }
+});

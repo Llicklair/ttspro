@@ -133,6 +133,10 @@ async function cargarModelos(): Promise<void> {
       vozBase: Float32Array.from(presets.base.voz),
     });
     baseActual = "local";
+    // The local voice has a name (since 2026-09-06 it is claude): say it, or the
+    // person downloads "claude" from the list and hears no difference.
+    const opcionLocal = ($("vozBase") as HTMLSelectElement).querySelector('option[value="local"]');
+    if (opcionLocal) opcionLocal.textContent = `local: ${presets.base.locutor}`;
     ($("vozBase") as HTMLSelectElement).value = "local";
     barra.style.width = "100%";
     const mb = ((t.bytes + c.bytes + grafoVoz.bytes) / 1e6).toFixed(1);
@@ -336,6 +340,7 @@ async function hablar(pedirConversor: boolean): Promise<void> {
       : " · sin convertir";
     const rtf = ((base.ms_modelo + msConv) / 1000 / segundos).toFixed(3);
     $("medidas").textContent =
+      `voz base ${hablante.meta.clave === "local" ? hablante.meta.nombre : hablante.meta.clave} · ` +
       `${base.tokens} tokens · frontend ${base.ms_frontend.toFixed(0)} ms · ` +
       `tts ${base.ms_modelo.toFixed(0)} ms${tramoConversor} · ${segundos.toFixed(2)} s · RTF ${rtf}`;
     log($("medidas").textContent ?? "");

@@ -156,6 +156,7 @@ async function cargarModelos(): Promise<void> {
     estado.textContent = `listo · ${resumen}`;
     pastilla("modelos", `${precision || "fp32"} · ${t.proveedor}`, "listo");
     log(`modelos cargados: ${resumen}`);
+    actualizarQuienHabla();
   } catch (err) {
     estado.textContent = `error: ${String(err)}`;
     pastilla("modelos", "error", "error");
@@ -209,6 +210,7 @@ function elegirVoz(indice: number): void {
   $("infoVoz").textContent = `preset ${v.nombre}`;
   pastilla("voz", v.id, "listo");
   log(`voz: ${v.nombre}`);
+  actualizarQuienHabla();
 }
 
 const srConversor = () => contrato.grafos.voz.frecuencia_entrada_hz ?? 22050;
@@ -228,6 +230,7 @@ async function vozDesdeOnda(onda: Float32Array, origen: string): Promise<void> {
     `voz clonada de ${origen}: ${(onda.length / srConversor()).toFixed(1)} s de audio → vector en ${(performance.now() - t0).toFixed(0)} ms`;
   pastilla("voz", "clonada", "listo");
   log($("infoVoz").textContent ?? "");
+  actualizarQuienHabla();
 }
 
 ($("fichero") as HTMLInputElement).addEventListener("change", async (ev) => {
@@ -474,14 +477,15 @@ const pintarStats = (s: Estadisticas, evento: string, m?: Mensaje) => {
   else if (evento === "vacía") pastilla("chat", desconectar ? "escuchando" : "al día", "listo");
 };
 
-let cola = new Cola(
-  sintetizarMensaje,
-  (o) => {
-    visor.mostrar(o.onda, o.sampleRate);
-    return visor.reproducir(reproducir);
-  },
-  pintarStats,
-);
+// Last spoken chat clip, in seconds: lets a test (and a curious person) check that
+// the sliders of panel 3 really shape what the chat says.
+let ultimaSegundosChat = 0;
+const reproducirChat = (o: { onda: Float32Array; sampleRate: number }) => {
+  ultimaSegundosChat = o.onda.length / o.sampleRate;
+  visor.mostrar(o.onda, o.sampleRate);
+  return visor.reproducir(reproducir);
+};
+let cola = new Cola(sintetizarMensaje, reproducirChat, pintarStats);
 let desconectar: (() => void) | null = null;
 
 /** What the demo does with one chat line, wherever it came from. */
@@ -513,15 +517,9 @@ $("mensaje").addEventListener("keydown", (e) => {
 $("vaciarCola").addEventListener("click", () => cola.vaciar());
 $("maxEdad").addEventListener("change", () => {
   cola.parar();
-  cola = new Cola(
-    sintetizarMensaje,
-    (o) => {
-      visor.mostrar(o.onda, o.sampleRate);
-      return visor.reproducir(reproducir);
-    },
-    pintarStats,
-    { maxEdadMs: Number(($("maxEdad") as HTMLInputElement).value) * 1000 },
-  );
+  cola = new Cola(sintetizarMensaje, reproducirChat, pintarStats, {
+    maxEdadMs: Number(($("maxEdad") as HTMLInputElement).value) * 1000,
+  });
 });
 
 const SIMULACION: Array<[string, string]> = [
@@ -617,6 +615,8 @@ $("conectar").addEventListener("click", () => {
 (window as unknown as { __ttspro_chat: unknown }).__ttspro_chat = {
   recibir,
   estadisticas: () => cola.estadisticas,
+  ultimaSegundos: () => ultimaSegundosChat,
+  quienHabla: () => $("quienHabla").textContent,
 };
 
 // ---------------------------------------------------------------- hardware (ADR 0011)
@@ -821,22 +821,17 @@ async function descargarBase(clave: string): Promise<void> {
   );
 }
 
-selectorBase.addEventListener("change", () => {
-  if (bases.has(selectorBase.value)) {
-    baseActual = selectorBase.value;
-    $("infoVozBase").textContent =
-      `voz base: ${hablanteActual().meta.nombre} · pulsa «sintetizar» o «solo voz base»`;
-  } else {
-    $("infoVozBase").textContent = "no descargada: pulsa «descargar y usar»";
-  }
-});
+// Choosing a base voice IS using it: download if needed, then make it current.
+// (Marcos picked claude in the list and the chat kept speaking with the old one:
+// the list only marked a candidate and a second button did the real thing.)
+selectorBase.addEventListener("change", () => void usarVozBase(selectorBase.value));
+$("descargarVozBase").addEventListener("click", () => void usarVozBase(selectorBase.value));
 
-$("descargarVozBase").addEventListener("click", async () => {
+async function usarVozBase(clave: string): Promise<void> {
   if (!tts) {
-    $("infoVozBase").textContent = "carga los modelos (panel 1) antes de descargar una voz base";
+    $("infoVozBase").textContent = "carga los modelos (panel 1) antes de elegir una voz base";
     return;
   }
-  const clave = selectorBase.value;
   const boton = $("descargarVozBase") as HTMLButtonElement;
   boton.disabled = true;
   try {
@@ -844,6 +839,7 @@ $("descargarVozBase").addEventListener("click", async () => {
     baseActual = clave;
     $("infoVozBase").textContent =
       `voz base: ${hablanteActual().meta.nombre} · pulsa «sintetizar» o «solo voz base»`;
+    actualizarQuienHabla();
   } catch (err) {
     log(`voz base ${clave}: ${String(err)}`);
     $("infoVozBase").textContent = `error con ${clave}: ${String(err).slice(0, 120)}`;
@@ -851,7 +847,7 @@ $("descargarVozBase").addEventListener("click", async () => {
   } finally {
     boton.disabled = false;
   }
-});
+}
 
 $("descargarTodas").addEventListener("click", async () => {
   if (!tts) return;
@@ -866,3 +862,27 @@ $("descargarTodas").addEventListener("click", async () => {
     boton.disabled = false;
   }
 });
+
+// ---------------------------------------------------------------- who speaks in the chat
+//
+// Two different "voices" live on this page: the BASE voice (the model that talks)
+// and the TARGET voice (a preset or a clone the converter paints on top). The chat
+// panel says, in one line, what its policy will actually do with what is chosen.
+function actualizarQuienHabla(): void {
+  const politica = ($("politica") as HTMLSelectElement).value;
+  const base = bases.get(baseActual)?.meta.nombre ?? "local";
+  const destino = $("infoVoz").textContent?.replace(/^preset /, "") ?? "";
+  const lineas: Record<string, string> = {
+    base: `hablará la voz base «${base}», sin conversor`,
+    elegida: vozDestino
+      ? `hablará «${base}» y el conversor la pintará como «${destino}» (~3 s por mensaje en wasm)`
+      : `sin preset ni voz clonada: hablará la voz base «${base}» tal cual`,
+    baseUsuario:
+      bases.size > 1
+        ? `cada usuario con una de las ${bases.size} voces base cargadas, sin conversor`
+        : "solo hay una voz base cargada: descarga más en el panel 2 para repartir",
+    usuario: `cada usuario con un preset distinto, pintado por el conversor sobre «${base}»`,
+  };
+  $("quienHabla").textContent = lineas[politica] ?? "";
+}
+$("politica").addEventListener("change", actualizarQuienHabla);

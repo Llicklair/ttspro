@@ -494,3 +494,72 @@ test("paquetes desde un host real (TTSPRO_VOCES)", async ({ page }) => {
     }),
   );
 });
+
+// ---------------------------------------------------------------- chat: sliders and the cloned voice
+//
+// Marcos: "que length y tau funcionen también para la voz de Twitch y que se
+// pueda usar la voz clonada". Same message twice with length 0.8 and 1.4 must
+// come out ~1.75x longer; and with a cloned voice + the "voz destino" policy
+// the converter runs and the page says so.
+
+test("chat: los deslizadores mandan en cada mensaje y la voz clonada entra por «voz destino»", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.selectOption("#precision", PRECISION);
+  await page.selectOption("#proveedor", "wasm");
+  await page.click("#cargar");
+  await page.waitForFunction(() => document.querySelectorAll(".voz").length > 0, null, {
+    timeout: 240_000,
+  });
+  const decir = async (texto: string, length: number) => {
+    await page.evaluate((l) => {
+      const e = document.getElementById("length") as HTMLInputElement;
+      e.value = String(l);
+      e.dispatchEvent(new Event("input"));
+    }, length);
+    const antes = await page.evaluate(
+      () =>
+        (
+          window as unknown as { __ttspro_chat: { estadisticas: () => { reproducidos: number } } }
+        ).__ttspro_chat.estadisticas().reproducidos,
+    );
+    await page.evaluate((t) => {
+      (
+        window as unknown as { __ttspro_chat: { recibir: (u: string, t: string) => void } }
+      ).__ttspro_chat.recibir("tester", t);
+    }, texto);
+    await page.waitForFunction(
+      (n) =>
+        (
+          window as unknown as { __ttspro_chat: { estadisticas: () => { reproducidos: number } } }
+        ).__ttspro_chat.estadisticas().reproducidos > n,
+      antes,
+      { timeout: 120_000 },
+    );
+    // let it finish playing: the queue refuses the same text while it is still sounding
+    await page.waitForFunction(
+      () => document.getElementById("pastilla-chat")?.dataset.estado !== "trabajando",
+      null,
+      { timeout: 60_000 },
+    );
+    return page.evaluate(() =>
+      (
+        window as unknown as { __ttspro_chat: { ultimaSegundos: () => number } }
+      ).__ttspro_chat.ultimaSegundos(),
+    );
+  };
+  await page.selectOption("#politica", "base");
+  const corta = await decir("una frase para medir la velocidad del chat", 0.8);
+  const larga = await decir("una frase para medir la velocidad del chat", 1.4);
+  console.log(JSON.stringify({ length08: corta, length14: larga, cociente: larga / corta }));
+  expect(larga / corta).toBeGreaterThan(1.4);
+  // the cloned voice
+  await page.setInputFiles("#fichero", REFERENCIA);
+  await expect(page.locator("#infoVoz")).toContainText("voz clonada", { timeout: 60_000 });
+  await page.selectOption("#politica", "elegida");
+  const linea = await page.locator("#quienHabla").innerText();
+  expect(linea).toContain("conversor");
+  const conClon = await decir("y ahora con la voz clonada del fichero", 1.0);
+  expect(conClon).toBeGreaterThan(0.5);
+});

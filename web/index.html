@@ -349,12 +349,13 @@
           <button id="conectar" disabled>conectar</button>
           <label class="campo">voz
             <select id="politica">
-              <option value="base" selected>voz base (rápida)</option>
-              <option value="elegida">la voz elegida arriba</option>
-              <option value="usuario">una por usuario (conversor)</option>
+              <option value="base" selected>la voz base elegida arriba (rápida, sin conversor)</option>
+              <option value="elegida">la voz destino elegida arriba: preset o clonada (conversor)</option>
               <option value="baseUsuario">una voz base por usuario (rápida)</option>
+              <option value="usuario">un preset por usuario (conversor)</option>
             </select>
           </label>
+          <span id="quienHabla" class="mono"></span>
           <label class="campo"><input id="leerNombre" type="checkbox" checked /> leer el nombre</label>
           <label class="campo">máx. caracteres
             <input id="maxChars" type="number" value="200" min="20" max="500" style="width:5.5rem" />

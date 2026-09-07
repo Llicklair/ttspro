@@ -35,6 +35,7 @@ One script does the whole setup and then offers to start the demo (add `--sin-de
 install):
 
 - Windows: double-click **`instalar.bat`**. Missing tools (uv, Node.js, eSpeak NG) come from winget.
+  Afterwards, **`arrancar.bat`** starts the page (and `arrancar.bat --lib` the library's example page).
 - Linux and macOS: **`./instalar.sh`**. uv and Node.js 22 install under `~/.local` without sudo;
   espeak-ng comes from your package manager and is only needed for the Python tests.
 

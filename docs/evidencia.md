@@ -986,6 +986,18 @@ cualquier base la clonación es parecido, no copia.
 
 ---
 
+## 2026-09-07 · Lectura de un chat de Twitch real, confirmada por Marcos
+
+**Montaje.** Página levantada con `arrancar.bat`, panel 4 con fuente «Twitch (chat del canal)»,
+canal `talk2play`, sin URL ni token (login anónimo `justinfan`). Marcos, con su Chrome y su GTX
+1070: «funciona bien». Es la primera confirmación humana del lector de chat con un canal de
+verdad; hasta hoy todo era Chromium headless con veinte mensajes simulados.
+
+Lo que sigue sin número: los tiempos de calibración en esa GPU (webgpu fp32 frente a wasm) siguen
+pendientes abajo; la página los mide con el botón «calibrar».
+
+---
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una

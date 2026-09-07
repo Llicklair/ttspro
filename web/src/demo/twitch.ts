@@ -14,6 +14,10 @@ export interface MensajeTwitch {
   usuario: string;
   texto: string;
   canal: string;
+  /** "Highlight My Message" channel-points reward: tag `msg-id=highlighted-message`. */
+  destacado: boolean;
+  /** A custom channel-points reward that takes text: tag `custom-reward-id`. */
+  recompensa?: string;
 }
 
 export type AlEstado = (
@@ -97,6 +101,8 @@ export function conectarTwitch(
         alMensaje({
           usuario: destag(m.tags["display-name"] || m.login),
           texto: m.texto,
+          destacado: m.tags["msg-id"] === "highlighted-message",
+          recompensa: m.tags["custom-reward-id"] || undefined,
           canal: nombre,
         });
       }
@@ -105,4 +111,17 @@ export function conectarTwitch(
   ws.onerror = () => alEstado("error", "websocket");
   ws.onclose = () => alEstado("cerrado", nombre);
   return () => ws.close();
+}
+
+/** One raw IRC line -> the chat message it carries, or null (pings, joins, notices). */
+export function mensajeDesdeLinea(linea: string, canal = ""): MensajeTwitch | null {
+  const m = parsear(linea);
+  if (!m || m.comando !== "PRIVMSG") return null;
+  return {
+    usuario: destag(m.tags["display-name"] || m.login),
+    texto: m.texto,
+    canal,
+    destacado: m.tags["msg-id"] === "highlighted-message",
+    recompensa: m.tags["custom-reward-id"] || undefined,
+  };
 }

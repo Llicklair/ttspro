@@ -108,6 +108,9 @@ Every line goes through a chat normalizer (links, @mentions, emotes, emoji, "jaj
 "q tal", repeated spam) mirrored in Python and TypeScript, then into a queue that renders the next
 message while the current one plays and drops what has gone stale. Pick the voice policy per
 message: the base voice keeps up on wasm; the converter costs ~3 s a message there and wants WebGPU.
+A filter reads only the lines viewers highlighted with channel points ("Highlight My Message"), or
+those plus custom rewards that carry text, so a busy chat becomes something people pay points to
+have read.
 
 ### As a library, from any HTML page
 

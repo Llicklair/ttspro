@@ -356,6 +356,14 @@
             </select>
           </label>
           <span id="quienHabla" class="mono"></span>
+          <label class="campo">de Twitch leer
+            <select id="filtroTwitch" title="qué mensajes del canal se leen">
+              <option value="todos" selected>todos los mensajes</option>
+              <option value="destacados">solo destacados (puntos de canal)</option>
+              <option value="recompensas">destacados y recompensas con texto</option>
+            </select>
+          </label>
+          <span id="infoFiltro" class="mono"></span>
           <label class="campo"><input id="leerNombre" type="checkbox" checked /> leer el nombre</label>
           <label class="campo">máx. caracteres
             <input id="maxChars" type="number" value="200" min="20" max="500" style="width:5.5rem" />

@@ -563,3 +563,50 @@ test("chat: los deslizadores mandan en cada mensaje y la voz clonada entra por �
   const conClon = await decir("y ahora con la voz clonada del fichero", 1.0);
   expect(conClon).toBeGreaterThan(0.5);
 });
+
+// ---------------------------------------------------------------- Twitch: only highlighted messages
+//
+// "Solo destacados": with the filter on, an ordinary line is ignored and counted,
+// a "Highlight My Message" line is read. Fed through the same function the real
+// Twitch socket calls, so the filter is exercised without a live channel.
+
+test("twitch: el filtro «solo destacados» ignora lo normal y lee lo destacado", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.selectOption("#precision", PRECISION);
+  await page.selectOption("#proveedor", "wasm");
+  await page.click("#cargar");
+  await page.waitForFunction(() => document.querySelectorAll(".voz").length > 0, null, {
+    timeout: 240_000,
+  });
+  await page.selectOption("#filtroTwitch", "destacados");
+  const manda = (destacado: boolean, texto: string) =>
+    page.evaluate(
+      ([d, t]) => {
+        type M = { usuario: string; texto: string; canal: string; destacado: boolean };
+        (window as unknown as { __ttspro_chat: { twitch: (m: M) => void } }).__ttspro_chat.twitch({
+          usuario: "Pepe_Gamer",
+          texto: t as string,
+          canal: "talk2play",
+          destacado: d as boolean,
+        });
+      },
+      [destacado, texto],
+    );
+  await manda(false, "esto es un mensaje normal");
+  await manda(false, "y otro normal");
+  await expect(page.locator("#infoFiltro")).toHaveText("ignorados 2");
+  await manda(true, "este lo he destacado con puntos");
+  await page.waitForFunction(
+    () =>
+      (
+        window as unknown as { __ttspro_chat: { estadisticas: () => { reproducidos: number } } }
+      ).__ttspro_chat.estadisticas().reproducidos >= 1,
+    null,
+    { timeout: 120_000 },
+  );
+  const registro = await page.locator("#chatLog").innerText();
+  expect(registro).toContain("destacado con puntos");
+  expect(registro).not.toContain("mensaje normal");
+});

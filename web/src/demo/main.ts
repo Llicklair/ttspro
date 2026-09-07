@@ -24,7 +24,7 @@ import {
 } from "../runtime/paquetes.ts";
 import { sintetizar } from "../runtime/sintetizador.ts";
 import { conectarSSE, conectarWebSocket, escucharPostMessage } from "./fuentes.ts";
-import { conectarTwitch } from "./twitch.ts";
+import { type MensajeTwitch, conectarTwitch } from "./twitch.ts";
 import { Visor, pintarNivel } from "./visor.ts";
 
 configurarEspeak({
@@ -593,11 +593,7 @@ $("conectar").addEventListener("click", () => {
   switch (fuente.value) {
     case "twitch": {
       if (!valor("canal")) return log("chat: escribe el nombre del canal");
-      desconectar = conectarTwitch(
-        valor("canal"),
-        (m) => recibir(m.usuario, m.texto),
-        alEstadoFuente,
-      );
+      desconectar = conectarTwitch(valor("canal"), desdeTwitch, alEstadoFuente);
       break;
     }
     case "websocket": {
@@ -616,9 +612,30 @@ $("conectar").addEventListener("click", () => {
   }
 });
 
+// Which Twitch lines get read. "Highlight My Message" costs channel points, so
+// "solo destacados" turns the reader into something the viewers pay for with
+// points, which is how a busy chat stays listenable.
+let ignoradosTwitch = 0;
+function desdeTwitch(m: MensajeTwitch): void {
+  const filtro = ($("filtroTwitch") as HTMLSelectElement).value;
+  const pasa =
+    filtro === "todos" || m.destacado || (filtro === "recompensas" && m.recompensa !== undefined);
+  if (!pasa) {
+    ignoradosTwitch++;
+    $("infoFiltro").textContent = `ignorados ${ignoradosTwitch}`;
+    return;
+  }
+  recibir(m.usuario, m.texto);
+}
+$("filtroTwitch").addEventListener("change", () => {
+  ignoradosTwitch = 0;
+  $("infoFiltro").textContent = "";
+});
+
 // For the e2e test and for anyone wiring their own source: push a line in.
 (window as unknown as { __ttspro_chat: unknown }).__ttspro_chat = {
   recibir,
+  twitch: desdeTwitch,
   estadisticas: () => cola.estadisticas,
   ultimaSegundos: () => ultimaSegundosChat,
   quienHabla: () => $("quienHabla").textContent,

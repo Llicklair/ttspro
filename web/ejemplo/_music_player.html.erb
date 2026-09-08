@@ -1,0 +1,145 @@
+<%# Reproductor de musica de streex, rediseñado. Mismos targets, acciones y values que el
+    controlador `twitch--music`: no hay que tocar el JS. Estilo DaisyUI/Tailwind, en la linea del
+    reproductor de filetrack: tarjeta "sonando ahora" con transporte grande, barra de progreso fina,
+    y debajo lista y actividad en dos columnas. %>
+<%= tag.div class: "max-w-4xl mx-auto",
+            data: { controller: "twitch--music",
+                    twitch__music_default_playlist_url_value: current_user&.default_playlist_url,
+                    twitch__music_default_music_volume_value: current_user&.default_music_volume } do %>
+  <div class="flex flex-col gap-4">
+
+    <%# ------------------------------------------------------------ sonando ahora %>
+    <div class="card bg-base-200 shadow-lg overflow-hidden">
+      <%# El reproductor de YouTube: el controlador le quita `hidden` cuando hay video. %>
+      <div id="youtube-player" data-twitch--music-target="player"
+           class="w-full aspect-video bg-base-300 hidden"></div>
+      <%= tag.audio data: { twitch__music_target: "audioPlayer" }, preload: "none" %>
+
+      <div class="card-body p-4 gap-3">
+        <div class="flex items-center gap-4">
+          <%# Portada: icono mientras no haya video %>
+          <div class="shrink-0 hidden sm:flex items-center justify-center w-16 h-16 rounded-box bg-gradient-to-br from-primary/20 to-secondary/20 ring-1 ring-base-content/10">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 text-primary/70">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 9l10.5-3m0 6.553v3.75a2.25 2.25 0 01-1.632 2.163l-1.32.377a1.803 1.803 0 11-.99-3.467l2.31-.66a2.25 2.25 0 001.632-2.163zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 01-1.632 2.163l-1.32.377a1.803 1.803 0 01-.99-3.467l2.31-.66A2.25 2.25 0 009 15.553z"/>
+            </svg>
+          </div>
+
+          <%# Titulo: el controlador escribe aqui y le quita `hidden` %>
+          <div class="flex-1 min-w-0">
+            <p class="text-[11px] uppercase tracking-widest text-base-content/50">Sonando ahora</p>
+            <div data-twitch--music-target="nowPlaying" class="font-semibold truncate text-base hidden"></div>
+            <p class="text-sm text-base-content/50 truncate">Twitch · lista de reproduccion</p>
+          </div>
+
+          <%# Transporte %>
+          <div class="flex items-center gap-1 shrink-0">
+            <button class="btn btn-ghost btn-sm btn-square" data-action="twitch--music#randomSong" title="Aleatorio">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="h-5 w-5 stroke-current">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+              </svg>
+            </button>
+
+            <button class="btn btn-ghost btn-sm btn-square" data-action="twitch--music#previousSong" title="Anterior">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="h-5 w-5 stroke-current">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.333 4zM4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z"/>
+              </svg>
+            </button>
+
+            <%# Play/pausa: sigue siendo el checkbox `enabledToggle` (el controlador lee `.checked`),
+                vestido de boton redondo con un `swap` de DaisyUI: play cuando esta apagado, pausa encendido. %>
+            <label class="swap btn btn-primary btn-circle" title="Reproducir / pausar">
+              <%= check_box_tag :enabled, "1", !firefox?, class: "hidden",
+                    data: { "twitch--music-target": "enabledToggle", action: "twitch--music#togglePlayback" } %>
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="swap-off h-6 w-6 stroke-current">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="swap-on h-6 w-6 stroke-current">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </label>
+
+            <button class="btn btn-ghost btn-sm btn-square" data-action="twitch--music#nextSong" title="Siguiente">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="h-5 w-5 stroke-current">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.933 12.8a1 1 0 000-1.6L6.6 7.2A1 1 0 005 8v8a1 1 0 001.6.8l5.333-4zM19.933 12.8a1 1 0 000-1.6l-5.333-4A1 1 0 0013 8v8a1 1 0 001.6.8l5.333-4z"/>
+              </svg>
+            </button>
+
+            <button class="btn btn-ghost btn-sm btn-square" data-action="twitch--music#stopPlayback" title="Detener">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="h-5 w-5 stroke-current">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
+              </svg>
+            </button>
+
+            <%# Repetir: el checkbox `loopToggle`, vestido igual; se ilumina en primary cuando esta activo %>
+            <label class="swap btn btn-ghost btn-sm btn-square has-[:checked]:text-primary has-[:checked]:bg-primary/10" title="Repetir cancion">
+              <input type="checkbox" class="hidden" data-twitch--music-target="loopToggle">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="swap-off h-5 w-5 stroke-current">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="swap-on h-5 w-5 stroke-current">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            </label>
+          </div>
+        </div>
+
+        <%# Progreso: el `seekBar` sigue siendo un range (el controlador escucha `input`) %>
+        <div class="flex items-center gap-3">
+          <span data-twitch--music-target="currentTimeDisplay" class="text-xs tabular-nums text-base-content/60 w-10 text-right shrink-0">0:00</span>
+          <input type="range" min="0" max="100" value="0"
+                 class="range range-xs range-primary flex-1"
+                 data-twitch--music-target="seekBar" data-action="input->twitch--music#seekTo">
+          <span data-twitch--music-target="durationDisplay" class="text-xs tabular-nums text-base-content/60 w-10 shrink-0">0:00</span>
+
+          <div class="flex items-center gap-1.5 shrink-0 pl-2 border-l border-base-content/10">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="h-4 w-4 stroke-current text-base-content/60">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M12 6v12"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" fill="currentColor" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+            </svg>
+            <input type="range" min="0" max="100" value="50"
+                   class="range range-xs range-primary w-20"
+                   data-twitch--music-target="volumeSlider" data-action="input->twitch--music#setVolume"
+                   title="Volumen">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <%# ------------------------------------------------------------ lista y actividad %>
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div class="md:col-span-3 card bg-base-200 shadow">
+        <div class="card-body p-3 gap-2">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-base-content/70">Lista de reproduccion</h3>
+          </div>
+          <%# El buscador nace oculto; el controlador lo muestra cuando hay lista. Sigue siendo el
+              <input> con el target, porque el controlador le lee `.value` y le quita `hidden`. %>
+          <input type="text" placeholder="Buscar en la lista…"
+                 class="input input-bordered input-sm w-full hidden"
+                 data-twitch--music-target="searchInput"
+                 data-action="input->twitch--music#filterPlaylist keydown->twitch--music#playFirstFiltered">
+          <div data-twitch--music-target="defaultPlaylist"
+               class="overflow-y-auto max-h-64 rounded-box bg-base-100/60 p-2 text-xs"></div>
+        </div>
+      </div>
+
+      <div class="md:col-span-2 card bg-base-200 shadow">
+        <div class="card-body p-3 gap-2">
+          <h3 class="text-sm font-semibold text-base-content/70">Actividad</h3>
+          <div data-twitch--music-target="queueContainer" class="hidden">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="badge badge-primary badge-xs"></span>
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">Peticiones pendientes</span>
+            </div>
+            <div data-twitch--music-target="queueList" class="text-xs space-y-1 mb-2"></div>
+          </div>
+          <%= tag.div class: "flex-1 overflow-y-auto rounded-box bg-base-100/60 p-2 text-xs max-h-72",
+                      data: { twitch__music_target: "container" } %>
+        </div>
+      </div>
+    </div>
+
+  </div>
+<% end %>

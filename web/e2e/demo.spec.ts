@@ -610,3 +610,41 @@ test("twitch: el filtro «solo destacados» ignora lo normal y lee lo destacado"
   expect(registro).toContain("destacado con puntos");
   expect(registro).not.toContain("mensaje normal");
 });
+
+// ---------------------------------------------------------------- library: tts.ajustes
+//
+// "al usarlo no puedo modificar tau, length…": the knobs are per-call options, and
+// now also persistent defaults in tts.ajustes. Same text, length 0.8 vs 1.4, must
+// come out longer; a per-call option must still win over the default.
+
+test("librería: tts.ajustes fija length_scale y tau para todas las llamadas", async ({ page }) => {
+  test.skip(!existsSync(resolve(AQUI, "../dist/lib/ttspro.js")), "run `npm run build:lib` first");
+  const servidor = (await servir(0)) as { address: () => { port: number }; close: () => void };
+  try {
+    await page.goto(`http://127.0.0.1:${servidor.address().port}/`);
+    await page.waitForFunction(() => Boolean((window as unknown as { tts?: unknown }).tts), null, {
+      timeout: 240_000,
+    });
+    const medido = await page.evaluate(async () => {
+      type R = { onda: Float32Array; sampleRate: number };
+      const t = (
+        window as unknown as {
+          tts: { ajustes: Record<string, number>; predict: (s: string, o?: unknown) => Promise<R> };
+        }
+      ).tts;
+      const seg = (r: R) => r.onda.length / r.sampleRate;
+      const frase = "una frase para medir la velocidad";
+      t.ajustes.length_scale = 0.8;
+      const corta = seg(await t.predict(frase));
+      t.ajustes.length_scale = 1.4;
+      const larga = seg(await t.predict(frase));
+      const porLlamada = seg(await t.predict(frase, { length_scale: 0.8 }));
+      return { corta, larga, porLlamada };
+    });
+    console.log(JSON.stringify(medido));
+    expect(medido.larga / medido.corta).toBeGreaterThan(1.3);
+    expect(medido.porLlamada).toBeLessThan(medido.larga);
+  } finally {
+    servidor.close();
+  }
+});

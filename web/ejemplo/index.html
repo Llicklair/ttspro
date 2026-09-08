@@ -21,7 +21,9 @@
 tts.elegirVoz("cof_02484")                 // o un preset: tts.voces lista los presets
 tts.elegirVoz(null)                        // o la voz base, sin conversor (la rápida)
 
-const r = await tts.predict("hola a todos, esto sale de la consola")
+tts.ajustes.length_scale = 1.1               // más lento; tau, noise_scale, noise_scale_w, semilla igual
+tts.ajustes.tau = 0.2                          // vale para todo lo que venga después
+const r = await tts.predict("hola a todos, esto sale de la consola", { length_scale: 0.9 })  // o por llamada
 tts.reproducir(r)                          // r.onda, r.sampleRate, r.ms, r.wav()
 
 // un stream: cualquier iterable, async iterable o ReadableStream de textos o {usuario, texto}

@@ -131,6 +131,14 @@ export class TTS {
   readonly vocesBase: Record<string, MetaPaquete> = {};
   /** Key of the base voice that speaks by default: "local" or a loaded pack. */
   vozBaseActual = "local";
+  /**
+   * Defaults for every `predict` from now on: `tts.ajustes.tau = 0.2`,
+   * `tts.ajustes.length_scale = 1.1`… A per-call option still wins. Same knobs
+   * as the page's sliders: noise_scale (timbre variation, 0.667), noise_scale_w
+   * (duration variation, 0.5), length_scale (speed, >1 slower), tau (how much of
+   * the base audio the converter keeps, 0.3), semilla.
+   */
+  ajustes: OpcionesSintesis & { tau?: number } = {};
   /** What `detectar()` saw on this machine, and the rule's recommendation. */
   readonly hardware: Hardware;
   readonly recomendacion: Recomendacion;
@@ -418,8 +426,9 @@ export class TTS {
   private async uno(
     texto: string,
     usuario: string | undefined,
-    opciones: OpcionesPredict,
+    porLlamada: OpcionesPredict,
   ): Promise<Resultado> {
+    const opciones: OpcionesPredict = { ...this.ajustes, ...porLlamada };
     let dicho = opciones.chat ? normalizarChat(texto) : texto;
     if (!dicho.trim()) throw new Error("predict: nothing readable in the text");
     if (usuario && (opciones.leerNombre ?? true)) dicho = `${nombreLegible(usuario)}: ${dicho}`;

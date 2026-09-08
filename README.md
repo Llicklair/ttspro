@@ -132,6 +132,8 @@ tts.elegirVoz(null);                              // or the base voice, no conve
 
 const r = await tts.predict("hola a todos");      // { onda, sampleRate, ms, fonemas, wav() }
 tts.volumen = 0.5;                                // master volume, 0..1
+tts.ajustes.length_scale = 1.1;                   // defaults for every predict: length_scale, tau,
+tts.ajustes.tau = 0.2;                            // noise_scale, noise_scale_w, semilla
 await tts.reproducir(r);
 
 // a stream: any iterable, async iterable or ReadableStream of strings or { usuario, texto }

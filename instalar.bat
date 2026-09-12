@@ -17,7 +17,7 @@ where winget >nul 2>nul
 if errorlevel 1 (
   echo winget is not available. Install "App Installer" from the Microsoft Store, or install
   echo uv, Node.js 22+ and eSpeak NG by hand, then run this script again.
-  exit /b 1
+  goto :fallo
 )
 
 call :necesita uv astral-sh.uv
@@ -30,19 +30,19 @@ set "PATH=%USERPROFILE%\.local\bin;%ProgramFiles%\nodejs;%ProgramFiles%\eSpeak N
 where uv >nul 2>nul
 if errorlevel 1 (
   echo uv still not on PATH: open a new terminal and run this script again.
-  exit /b 1
+  goto :fallo
 )
 where node >nul 2>nul
 if errorlevel 1 (
   echo node still not on PATH: open a new terminal and run this script again.
-  exit /b 1
+  goto :fallo
 )
 
 rem ---------------------------------------------------------------- python side
 echo.
 echo == Python environment (uv sync) ==
 call uv sync --extra dev --extra export
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto :fallo
 
 echo.
 echo == Model weights: download public weights and export the ONNX graphs ==
@@ -52,7 +52,7 @@ if exist "models\tts.onnx" if exist "models\conversor.onnx" if exist "models\voz
   goto :web
 )
 call uv run python -m ttspro.export.modelos --sin-encoder
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto :fallo
 
 :web
 rem ---------------------------------------------------------------- browser side
@@ -67,12 +67,12 @@ if exist "node_modules\" (
 )
 if errorlevel 1 (
   popd
-  exit /b 1
+  goto :fallo
 )
 call npm run preparar
 if errorlevel 1 (
   popd
-  exit /b 1
+  goto :fallo
 )
 popd
 

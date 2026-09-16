@@ -24,10 +24,10 @@
  *     contra voz destino, hay **una** lista de voces;
  *   - se fueron `tau`, `noise_scale` y `length_scale`, y entran `pasos`,
  *     `velocidad` y `semilla`;
- *   - `clonar()` sigue existiendo y **falla a propósito**, con el motivo: el
- *     encoder que convierte un audio en voz no se publicó nunca y reconstruirlo
- *     no llega (seis medidas en docs/evidencia.md). Lo que sí funciona es
- *     `importar()` un `.json` construido fuera.
+ *   - `clonar()` sigue existiendo y ahora **funciona**, pero no con Supertonic:
+ *     su encoder de voz no se publicó nunca y reconstruirlo no llega (seis
+ *     medidas en docs/evidencia.md). Lo hace un segundo motor, Pocket TTS, que
+ *     se baja solo la primera vez que se llama.
  *
  * Todo corre en la página: sin servidor. La página tiene que venir por HTTP
  * (fetch no funciona desde file://) y, para wasm multihilo, con las cabeceras
@@ -41,6 +41,7 @@ import { aWav, ponerVolumen, reproducir as reproducirOnda, volumen } from "../ru
 import { Cola, type Estadisticas, type Mensaje } from "../runtime/cola.ts";
 import { type Hardware, type Recomendacion, detectar, recomendar } from "../runtime/hardware.ts";
 import type { Proveedor } from "../runtime/ort.ts";
+import { Pocket } from "../runtime/pocket.ts";
 import {
   type Cargando,
   type Estilo,
@@ -49,6 +50,7 @@ import {
   descargarEstilo,
   leerEstilo,
 } from "../runtime/supertonic.ts";
+import { cambiarVelocidad } from "../runtime/velocidad.ts";
 
 export interface OpcionesCarga {
   /** Dónde viven los grafos y las voces. Por defecto `/models/supertonic/`. */
@@ -115,6 +117,9 @@ export class TTS {
   ) {}
 
   private readonly estilos = new Map<string, Estilo>();
+  /** Las voces que habla el otro motor: clonadas, sin estilo que guardar. */
+  private readonly clonadas = new Set<string>();
+  private pocket: Pocket | null = null;
   private vozActual: string | null = null;
 
   static hardware(): Promise<Hardware> {
@@ -198,21 +203,30 @@ export class TTS {
   }
 
   /**
-   * Clonar desde una grabación. **No funciona, y falla diciendo por qué.**
+   * Clonar desde una grabación. Devuelve el nombre de la voz, ya elegida.
    *
-   * Supertone no publicó el encoder que convierte un audio en `style_ttl`, y
-   * reconstruirlo no llega: seis intentos medidos en docs/evidencia.md, el mejor
-   * 0,227 sobre un objetivo de 0,55, y el definitivo falla hasta reconstruyendo
-   * una voz de fábrica desde su propio audio. Un método que devuelve la voz media
-   * en silencio es peor que uno que no existe, así que este avisa.
+   * No lo hace Supertonic: Supertone nunca publicó el encoder que convierte un
+   * audio en `style_ttl`, y reconstruirlo no llega — seis intentos medidos en
+   * docs/evidencia.md, el mejor 0,227 sobre un objetivo de 0,55. Lo hace Pocket
+   * TTS, que sí publica el suyo, y que se baja en esta llamada (216 MB, una vez)
+   * porque quien solo lee texto no tiene por qué cargar con él.
+   *
+   * Dale lo más largo que puedas: el encoder lee hasta 20 s y se nota mucho, de
+   * 0,40 de similitud con 2 s a 0,53 con 20 (docs/evidencia.md). Y clona solo
+   * voces cuyo dueño te haya dado permiso.
    */
-  async clonar(_fichero: File | Blob): Promise<never> {
-    throw new Error(
-      "clonar() desde una grabación no está disponible: el encoder de voz no se publicó" +
-        " nunca (ADR 0012). Construye la voz fuera con `uv run python -m" +
-        " ttspro.supertonic.constructor --referencia voz.wav --nombre x` e impórtala" +
-        " con tts.importar(json).",
-    );
+  async clonar(fichero: File | Blob, nombre?: string): Promise<string> {
+    const id =
+      nombre ??
+      (fichero instanceof File
+        ? fichero.name.replace(/\.[^.]+$/, "")
+        : `voz${this.voces.length + 1}`);
+    this.pocket ??= await Pocket.cargar({ idioma: "spanish" });
+    await this.pocket.clonarFichero(fichero as File, id);
+    this.clonadas.add(id);
+    if (!this.voces.includes(id)) this.voces.push(id);
+    this.vozActual = id;
+    return id;
   }
 
   /** Mide una frase en cada proveedor disponible y devuelve los ms. */
@@ -277,8 +291,10 @@ export class TTS {
     porLlamada: OpcionesPredict,
   ): Promise<Resultado> {
     const o = { ...this.ajustes, ...porLlamada };
-    if (o.voz && !this.estilos.has(o.voz)) await this.elegirVoz(o.voz);
-    const estilo = this.estiloActual(o.voz);
+    const cual = o.voz ?? this.vozActual ?? "";
+    const clonada = this.clonadas.has(cual);
+    if (o.voz && !clonada && !this.estilos.has(o.voz)) await this.elegirVoz(o.voz);
+    const estilo = clonada ? null : this.estiloActual(o.voz);
 
     let dicho = porLlamada.chat ? normalizarChat(texto) : texto;
     if (!dicho.trim()) throw new Error("predict: nothing readable in the text");
@@ -287,19 +303,32 @@ export class TTS {
     // "3.522" como dígitos, y esta pieza ya existía y ya está probada.
     const listo = o.idioma === "es" ? normalizar(dicho) : dicho;
 
-    const r = await this.motor.sintetizar(listo, estilo, {
-      idioma: o.idioma,
-      pasos: o.pasos,
-      velocidad: o.velocidad,
-      semilla: o.semilla,
-    });
+    // Una voz clonada la dice el otro motor, que no tiene velocidad dentro: se
+    // estira el tiempo después, sin tocar el tono, que es la mitad de lo que
+    // hace reconocible a una voz clonada.
+    const r =
+      estilo === null
+        ? await (this.pocket as Pocket)
+            // Ese motor no pasa de 4 pasos: pedirle los 8 de Supertonic no es
+            // "mejor", es un valor que no admite.
+            .sintetizar(listo, cual, { pasos: Math.min(4, o.pasos), semilla: o.semilla })
+            .then((x) => ({
+              ...x,
+              onda: cambiarVelocidad(x.onda, o.velocidad, x.sampleRate),
+            }))
+        : await this.motor.sintetizar(listo, estilo, {
+            idioma: o.idioma,
+            pasos: o.pasos,
+            velocidad: o.velocidad,
+            semilla: o.semilla,
+          });
     return {
       texto: dicho,
       usuario,
       onda: r.onda,
       sampleRate: r.sampleRate,
       ms: r.ms,
-      voz: estilo.nombre,
+      voz: estilo?.nombre ?? cual,
       wav: () => aWav(r.onda, r.sampleRate),
     };
   }

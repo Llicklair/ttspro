@@ -219,23 +219,17 @@
           <span class="dato"><b id="e-proveedor">—</b><i>ejecuta en</i></span>
           <span class="dato"><b id="e-ms">—</b><i>por frase</i></span>
           <span class="hueco"></span>
-          <label class="campo">motor
-            <select id="motor" title="Pocket clona desde una grabación; Supertonic lee mejor y en más idiomas">
-              <option value="pocket" selected>Pocket · clona</option>
-              <option value="supertonic">Supertonic · 44,1 kHz, 31 idiomas</option>
-            </select>
-          </label>
-          <button id="cargar" title="vuelve a cargar el motor elegido">recargar</button>
+          <button id="cargar" title="vuelve a cargar el motor">recargar</button>
           <button id="descargarHF" title="baja los cuatro grafos directamente de Hugging Face, sin instalar nada">usar Hugging Face</button>
           <button id="abrir-ajustes" title="proveedor, hardware y registro">ajustes</button>
         </div>
         <div class="barra"><i id="progreso"></i></div>
         <p id="estado" class="mono">arrancando…</p>
         <p class="nota" style="margin:.4rem 0 0">
-          El motor se carga solo al abrir la página, y la primera vez se baja: <strong>Pocket</strong>
-          son 177 MB (más 39 si clonas) y <strong>Supertonic</strong> 398 MB. Después salen de la
-          caché del navegador. Pocket es el único que sabe clonar desde una grabación; Supertonic
-          lee algo mejor, sale a 44,1 kHz y habla 31 idiomas.
+          No hay que elegir motor: eliges una voz y la página sabe quién la habla. Para leer usa
+          <strong>Supertonic</strong> —44,1 kHz, 31 idiomas—, que se baja al abrir (398 MB); si
+          clonas, se baja además el motor que sabe hacerlo (216 MB, solo la primera vez). Después
+          todo sale de la caché del navegador.
         </p>
       </header>
 
@@ -271,11 +265,11 @@
               <span class="campo en-linea">o suelta el fichero aquí</span>
             </div>
             <p class="nota" id="nota-clonar" style="margin:.7rem 0 0">
-              Suelta aquí una grabación (5–20 s) y <strong>Pocket la convierte en voz en medio
-              segundo</strong>. Con el motor Supertonic no se puede: su encoder de voz nunca se
-              publicó, y los seis intentos de reconstruirlo están medidos en
-              <a href="https://github.com/Llicklair/ttspro/blob/main/docs/evidencia.md">docs/evidencia.md</a>.
-              También entra un <code>.json</code> de estilo, para las voces de Supertonic.
+              Suelta aquí una grabación (5–20 s) y sale una voz. La primera vez hay que bajar el
+              motor que clona (216 MB), luego es medio segundo. Supertonic no puede hacerlo: su
+              encoder de voz nunca se publicó, y los seis intentos de reconstruirlo están medidos
+              en <a href="https://github.com/Llicklair/ttspro/blob/main/docs/evidencia.md">docs/evidencia.md</a>.
+              También entra un <code>.json</code> de estilo de Supertonic.
               <strong>Clona solo voces cuyo dueño te haya dado permiso.</strong>
             </p>
           </div>
@@ -306,22 +300,24 @@
               El modelo español trae <strong>1 paso de fábrica y admite 4 como máximo</strong>, y
               la página arranca en 4 porque <strong>no cuesta nada</strong>: medido, RTF 0,72 con 4
               pasos contra 0,81 con 1. Lo caro es el modelo de lenguaje, no el decodificador.
-              Su temperatura de fábrica es <strong>0,7</strong>, y 0,5 leyó mejor en la medida de
-              <a href="https://github.com/Llicklair/ttspro/blob/main/docs/evidencia.md">evidencia</a>.
+              La temperatura de fábrica del modelo es <strong>0,7</strong> y la página arranca en
+              <strong>0,5</strong>, que leyó bastante mejor al medirlo: WER 0,027 contra 0,119
+              (<a href="https://github.com/Llicklair/ttspro/blob/main/docs/evidencia.md">evidencia</a>).
+              El extremo izquierdo del deslizador devuelve la decisión al modelo.
               <br />
               <code>tau</code> no está porque no existe: era del conversor de OpenVoice
               («cuánto del audio base se conserva»), y ningún motor de los dos tiene conversor.
             </p>
             <div class="deslizadores">
-              <label class="deslizador" title="pasos del decodificador. El modelo español admite 4 como máximo y trae 1 de fábrica; medido, subirlo a 4 no cuesta tiempo">
-                <div><span>calidad (pasos)</span><b id="pasos_v">4</b></div>
-                <input id="pasos" type="range" min="1" max="4" step="1" value="4" />
+              <label class="deslizador" title="pasos del decodificador: más es mejor y más lento, y la rodilla de la curva está en 8. Las voces clonadas admiten 4 como máximo y se recortan solas">
+                <div><span>calidad (pasos)</span><b id="pasos_v">8</b></div>
+                <input id="pasos" type="range" min="1" max="16" step="1" value="8" />
               </label>
-              <label class="deslizador" title="lo que antes se llamaba noise. Baja: más plano y más seguro. Alta: más expresivo y con más fallos de lectura">
-                <div><span>variación (temperatura)</span><b id="temperatura_v">por defecto</b></div>
-                <input id="temperatura" type="range" min="0" max="1" step="0.05" value="0" />
+              <label class="deslizador" title="lo que antes se llamaba noise. Baja: más plano y más seguro. Alta: más expresivo y con más fallos de lectura. 0 deja decidir al modelo. Solo afecta a las voces clonadas">
+                <div><span>variación (temperatura)</span><b id="temperatura_v">0.50</b></div>
+                <input id="temperatura" type="range" min="0" max="1" step="0.05" value="0.5" />
               </label>
-              <label class="deslizador" title="velocidad del habla. Con Pocket se estira el tiempo sin tocar el tono; con Supertonic lo hace el propio modelo">
+              <label class="deslizador" title="velocidad del habla. En las voces de fábrica la marca el propio modelo; en las clonadas se estira el tiempo después, sin tocar el tono">
                 <div><span>velocidad</span><b id="velocidad_v">1.05</b></div>
                 <input id="velocidad" type="range" min="0.7" max="1.6" step="0.01" value="1.05" />
               </label>
@@ -403,9 +399,9 @@
               </label>
               <label class="campo">calidad
                 <select id="pasosChat">
-                  <option value="1">rápida (1 paso)</option>
-                  <option value="2">normal (2 pasos)</option>
-                  <option value="4" selected>buena (4 pasos)</option>
+                  <option value="2">rápida (2 pasos)</option>
+                  <option value="4">normal (4 pasos)</option>
+                  <option value="8" selected>buena (8 pasos)</option>
                 </select>
               </label>
             </div>

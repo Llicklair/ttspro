@@ -57,7 +57,7 @@ test("librería: elegir voz, importar un .json, predict de texto y de stream", a
             ajustes: { pasos: number; semilla?: number };
             elegirVoz: (n: string) => Promise<string>;
             importar: (o: unknown, n?: string) => Promise<string>;
-            clonar: (f: unknown) => Promise<never>;
+            clonar: (f: unknown, nombre?: string) => Promise<string>;
             predict: (e: unknown, o?: unknown) => Promise<R> & AsyncIterable<R>;
           };
         }
@@ -77,13 +77,10 @@ test("librería: elegir voz, importar un .json, predict de texto y de stream", a
       const importada = await t.importar(crudo, "mi-voz");
       const suya = await t.predict("y esta la dice la voz importada");
 
-      // Clonar desde grabación tiene que fallar, y diciendo por qué.
-      let motivo = "";
-      try {
-        await t.clonar(new Blob([new Uint8Array([1, 2, 3])]));
-      } catch (e) {
-        motivo = String(e);
-      }
+      // `clonar` existe y no es un método muerto. Lo que hace de verdad se mide
+      // en `pocket.spec.ts`, por la página: aquí llamarlo bajaría 216 MB del otro
+      // motor, y esto es la prueba rápida de la librería.
+      const sabeClonar = typeof t.clonar === "function";
 
       // Un stream: se sintetiza por delante y sale en orden.
       const stream: string[] = [];
@@ -107,7 +104,7 @@ test("librería: elegir voz, importar un .json, predict de texto y de stream", a
         f1: resumen(f1),
         m1: resumen(m1),
         suya: resumen(suya),
-        motivo,
+        sabeClonar,
         stream,
       };
     });
@@ -127,9 +124,7 @@ test("librería: elegir voz, importar un .json, predict de texto y de stream", a
     expect(medido.vozActual).toBe("mi-voz");
     expect(medido.suya.voz).toBe("mi-voz");
 
-    // El fallo de clonar tiene que explicarse, no solo fallar.
-    expect(medido.motivo).toContain("no está disponible");
-    expect(medido.motivo).toContain("importar");
+    expect(medido.sabeClonar).toBe(true);
 
     // "KEKW" -> "jajaja" por el normalizador de chat; las tres salen y en orden.
     expect(medido.stream).toEqual(["hola que tal", "jajaja", "segunda linea"]);

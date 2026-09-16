@@ -27,7 +27,7 @@ tts.ajustes.semilla = 0                    // 0 ES una semilla; undefined es ale
 const r = await tts.predict("hola a todos, esto sale de la consola", { pasos: 4 })  // o por llamada
 await tts.reproducir(r)                    // r.onda, r.sampleRate, r.ms, r.voz, r.wav()
 
-await tts.clonar(fichero)                  // falla a propósito, y dice por qué: ADR 0012
+await tts.clonar(fichero)                  // graba 20 s y suéltalos: baja el clonador la 1.ª vez
 
 // un stream: cualquier iterable, async iterable o ReadableStream de textos o {usuario, texto}
 for await (const r of tts.predict(mensajes(), { chat: true, reproducir: true })) console.log(r.texto, r.ms)

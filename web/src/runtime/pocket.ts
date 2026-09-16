@@ -9,15 +9,18 @@
  *
  * Este clona en medio segundo y saca **0,413** de similitud, que es el mejor
  * número que ha tenido el proyecto. Lo paga en frecuencia (24 kHz) y en idiomas
- * (7). Por eso conviven los dos y la página deja elegir.
+ * (7), así que **solo clona**: leer lo hace Supertonic, y las dos voces de
+ * fábrica de este (`javert`, `lola`) no se ofrecen en ningún sitio. El usuario
+ * no elige motor; elige una voz, y la voz sabe quién la habla.
  *
  * El trabajo pesado corre en un **Worker**: onnxruntime en wasm decodifica de
  * forma síncrona y en el hilo principal congelaría la página y mataría el reloj
  * de audio. Lo que llega aquí son marcos de 80 ms ya hechos.
  *
  * Pesos: 177 MB el modelo, 1,6 MB el tokenizador y las voces, y 39 MB más el
- * encoder **solo si clonas**. Se quedan en la Cache API del navegador, así que
- * la segunda visita arranca hablando.
+ * encoder. Nada de eso se descarga al abrir la página: esta clase se carga la
+ * primera vez que alguien suelta una grabación, y quien solo lee texto no paga
+ * un byte. Se quedan en la Cache API, así que la segunda vez es inmediata.
  */
 
 import {
@@ -62,8 +65,18 @@ export class Pocket {
     readonly idioma: string,
   ) {}
 
-  /** Las voces clonadas, por nombre. El motor guarda la suya; aquí va el vector. */
+  /**
+   * Las muestras de cada voz clonada, por nombre.
+   *
+   * El worker de upstream guarda **una sola**: `let cloned = null`, y cualquier
+   * `Float32Array` que le pases se resuelve a esa ultima. Asi que guardar aqui un
+   * marcador vacio hacia que clonar A, clonar B y volver a A hablara con B. Se
+   * guardan las muestras y se vuelve a clonar al cambiar, que cuesta medio
+   * segundo y es lo unico que esa API permite.
+   */
   private readonly clonadas = new Map<string, Float32Array>();
+  /** Cual tiene el worker ahora mismo, para no reclonar sin motivo. */
+  private enElWorker: string | null = null;
 
   static async cargar(opciones: OpcionesPocket = {}): Promise<Pocket> {
     const idioma = opciones.idioma ?? "spanish";
@@ -120,9 +133,8 @@ export class Pocket {
     // su suelo 24 dB. El encoder es sensible al nivel absoluto y con la
     // referencia amplificada se queda el ruido como parte de la voz.
     await this.motor.clone(recortada);
-    // `clone` deja la voz dentro del worker y `speak` la toma como la actual;
-    // se guarda el nombre para poder volver a ella desde la lista.
-    this.clonadas.set(nombre, new Float32Array(0));
+    this.clonadas.set(nombre, recortada);
+    this.enElWorker = nombre;
     return recortada.length / this.sampleRate;
   }
 
@@ -162,18 +174,22 @@ export class Pocket {
   }
 
   /** Los marcos según los va decodificando el worker. */
-  marcos(
+  async *marcos(
     texto: string,
     voz: string,
     opciones: { pasos?: number; temperatura?: number; semilla?: number } = {},
   ): AsyncGenerator<Float32Array> {
-    // Una voz clonada vive dentro del worker: se pide por el vector vacío que
-    // `clone` dejó, no por nombre, porque upstream no la nombra.
-    const cual = this.clonadas.has(voz) ? (this.clonadas.get(voz) as Float32Array) : voz;
+    const muestras = this.clonadas.get(voz);
+    if (muestras && this.enElWorker !== voz) {
+      // Otra voz clonada ocupa el worker: hay que devolver esta a su sitio.
+      await this.motor.clone(muestras);
+      this.enElWorker = voz;
+    }
+    const cual = muestras ?? voz;
     // Sin temperatura, la del modelo. El bundle español no declara ninguna (el
     // inglés usa 0,2), asi que el valor efectivo lo pone el checkpoint: forzar
     // aqui un numero medido con OTRO export seria adivinar.
-    return this.motor.speak(texto, cual, {
+    yield* this.motor.speak(texto, cual, {
       decodeSteps: opciones.pasos,
       ...(opciones.temperatura === undefined ? {} : { temperature: opciones.temperatura }),
       seed: opciones.semilla,

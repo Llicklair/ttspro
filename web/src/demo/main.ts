@@ -57,6 +57,8 @@ interface Ficha {
   nombre: string;
   origen: "fabrica" | "construida" | "clonada";
   detalle: string;
+  /** Quien la dice. Las clonadas son de Pocket; todo lo demas, de Supertonic. */
+  motor: "supertonic" | "pocket";
   estilo?: Estilo; // se descarga al elegirla, no antes: 292 KB cada una
 }
 
@@ -70,23 +72,43 @@ interface Contrato {
 }
 
 /**
- * Los dos motores, y por que hay dos.
+ * Dos motores, y **cada uno hace lo unico que sabe hacer bien**.
  *
- * Pocket clona desde una grabacion en medio segundo (0,413 de similitud, el
- * mejor numero del proyecto) y pesa 177 MB. Supertonic lee algo mejor (WER 0,008
- * contra 0,027), sale a 44,1 kHz y habla 31 idiomas, pero **no sabe clonar**: su
- * encoder de voz no se publico nunca y reconstruirlo no llega — seis intentos en
- * docs/evidencia.md. Ninguno gana en todo, asi que se elige.
+ * Supertonic lee: WER 0,008 contra 0,027, 44,1 kHz contra 24, 31 idiomas contra
+ * 7, y diez voces de fabrica en vez de dos. Lo que no sabe es clonar — su encoder
+ * de voz no se publico nunca y reconstruirlo no llega (seis intentos medidos en
+ * docs/evidencia.md).
+ *
+ * Pocket sabe clonar, y esa es su unica razon de estar aqui: sus dos voces de
+ * fabrica **no se ofrecen**, porque las de Supertonic suenan mejor. Por eso se
+ * carga tarde, la primera vez que alguien suelta una grabacion, y no de entrada:
+ * son 177 MB que quien solo quiere leer texto no tiene por que bajarse.
+ *
+ * El usuario no elige motor. Elige una voz, y la voz sabe quien la habla.
  */
-type MotorActivo = { tipo: "supertonic"; motor: Supertonic } | { tipo: "pocket"; motor: Pocket };
-
-let activo: MotorActivo | null = null;
+let supertonic: Supertonic | null = null;
+let pocket: Pocket | null = null;
 let contrato: Contrato | null = null;
 
-const tipoElegido = (): "supertonic" | "pocket" =>
-  $$<HTMLSelectElement>("motor").value === "supertonic" ? "supertonic" : "pocket";
-
-const puedeClonar = () => activo?.tipo === "pocket";
+/** Pocket se carga la primera vez que hace falta, no al abrir la pagina. */
+async function motorDeClonado(): Promise<Pocket> {
+  if (pocket) return pocket;
+  $("estado").textContent = "bajando el motor de clonado (177 MB, solo la primera vez)…";
+  pastilla("p-clonar", "cargando el motor…", "aviso");
+  const progreso = $("progreso");
+  pocket = await Pocket.cargar({
+    idioma: "spanish",
+    alCargar: (etapa, recibidos, total) => {
+      progreso.style.width = `${total > 0 ? ((recibidos / total) * 100).toFixed(1) : 0}%`;
+      const mb =
+        total > 0 ? ` — ${(recibidos / 1e6).toFixed(0)} de ${(total / 1e6).toFixed(0)} MB` : "";
+      $("estado").textContent = `bajando el motor de clonado: ${etapa}${mb}`;
+    },
+  });
+  progreso.style.width = "100%";
+  log(`pocket cargado para clonar (${pocket.sampleRate / 1000} kHz)`);
+  return pocket;
+}
 const fichas = new Map<string, Ficha>();
 let vozActual: string | null = null;
 let ultimo: { onda: Float32Array; sampleRate: number } | null = null;
@@ -203,78 +225,43 @@ async function cargar(respaldo = true): Promise<void> {
       $$<HTMLInputElement>("origenModelos").value = ORIGENES.huggingface;
       raiz = ORIGENES.huggingface;
     }
-    if (activo?.tipo === "pocket") activo.motor.cerrar();
-    activo = null;
+    supertonic = null;
     fichas.clear();
 
-    if (tipoElegido() === "pocket") {
-      // Pocket se trae sus pesos de Hugging Face y los deja en la Cache API: el
-      // `origen` de Supertonic no pinta nada aqui, y por eso no se toca.
-      const pocket = await Pocket.cargar({
-        idioma: "spanish",
-        alCargar: (etapa, recibidos, total) => {
-          progreso.style.width = `${total > 0 ? ((recibidos / total) * 100).toFixed(1) : 0}%`;
-          const mb =
-            total > 0 ? ` — ${(recibidos / 1e6).toFixed(0)} de ${(total / 1e6).toFixed(0)} MB` : "";
-          $("estado").textContent = `descargando ${etapa}${mb}`;
-        },
-      });
-      if (mia !== cargaActual) {
-        pocket.cerrar();
-        log("descartada la carga de pocket: hay otra mas nueva");
-        return;
-      }
-      activo = { tipo: "pocket", motor: pocket };
-      pintarFichas(pocket.voces);
-      // El modelo espanol trae 1 paso de fabrica y admite 4; la pagina arranca en
-      // 4 a proposito, porque es lo mejor que da y quien abre esto quiere oirlo
-      // bien. Lo que el modelo usaria por su cuenta se dice en el registro, no se
-      // impone: imponerlo seria volver al minimo sin avisar.
-      log(
-        `pocket: ${pocket.pasosPorDefecto} paso(s) de fabrica, temperatura ${pocket.temperaturaPorDefecto}`,
-      );
-      dato("e-motor", `pocket · ${pocket.sampleRate / 1000} kHz · clona`);
-      dato("e-proveedor", "worker");
-      $("estado").textContent = `listo: pocket en español, ${pocket.voces.length} voces`;
-      log(`pocket cargado, ${pocket.voces.length} voces`);
-      await elegirVoz(pocket.vozPorDefecto, false);
-    } else {
-      contrato = await leerContrato(raiz);
-      pintarFichas(await listaDeVoces(raiz, contrato.voces));
+    contrato = await leerContrato(raiz);
+    pintarFichas(await listaDeVoces(raiz, contrato.voces));
 
-      const preferidos: Proveedor[] =
-        $$<HTMLSelectElement>("proveedor").value === "auto"
-          ? ["webgpu", "wasm"]
-          : [$$<HTMLSelectElement>("proveedor").value as Proveedor];
+    const preferidos: Proveedor[] =
+      $$<HTMLSelectElement>("proveedor").value === "auto"
+        ? ["webgpu", "wasm"]
+        : [$$<HTMLSelectElement>("proveedor").value as Proveedor];
 
-      // El progreso se cuenta por grafo, no por bytes totales: asi no depende de
-      // que haya contrato, y sirve igual viniendo de Hugging Face.
-      const st = await Supertonic.cargar(`${raiz}onnx/`, preferidos, (c) => {
-        const dentro = c.bytes > 0 ? c.recibidos / c.bytes : 0;
-        progreso.style.width = `${(((c.indice + dentro) / c.total) * 100).toFixed(1)}%`;
-        const cuanto =
-          c.bytes > 0
-            ? ` — ${(c.recibidos / 1e6).toFixed(0)} de ${(c.bytes / 1e6).toFixed(0)} MB`
-            : "";
-        $("estado").textContent = `descargando ${c.grafo} (${c.indice + 1}/${c.total})${cuanto}`;
-      });
-      if (mia !== cargaActual) {
-        log("descartada la carga de supertonic: hay otra mas nueva");
-        return;
-      }
-      activo = { tipo: "supertonic", motor: st };
-      dato("e-motor", `${contrato.motor} · ${contrato.frecuencia_salida_hz / 1000} kHz`);
-      dato("e-proveedor", st.proveedor);
-      $("estado").textContent = `listo: ${(st.bytes / 1e6).toFixed(0)} MB en ${st.proveedor}`;
-      log(`supertonic cargado en ${st.proveedor}`);
-      await elegirVoz(contrato.voces[0], false);
+    // El progreso se cuenta por grafo, no por bytes totales: asi no depende de
+    // que haya contrato, y sirve igual viniendo de Hugging Face.
+    const st = await Supertonic.cargar(`${raiz}onnx/`, preferidos, (c) => {
+      const dentro = c.bytes > 0 ? c.recibidos / c.bytes : 0;
+      progreso.style.width = `${(((c.indice + dentro) / c.total) * 100).toFixed(1)}%`;
+      const cuanto =
+        c.bytes > 0
+          ? ` — ${(c.recibidos / 1e6).toFixed(0)} de ${(c.bytes / 1e6).toFixed(0)} MB`
+          : "";
+      $("estado").textContent = `descargando ${c.grafo} (${c.indice + 1}/${c.total})${cuanto}`;
+    });
+    if (mia !== cargaActual) {
+      log("descartada la carga de supertonic: hay otra mas nueva");
+      return;
     }
+    supertonic = st;
+    dato("e-motor", `${contrato.motor} · ${contrato.frecuencia_salida_hz / 1000} kHz`);
+    dato("e-proveedor", st.proveedor);
+    $("estado").textContent = `listo: ${(st.bytes / 1e6).toFixed(0)} MB en ${st.proveedor}`;
+    log(`supertonic cargado en ${st.proveedor}`);
+    await elegirVoz(contrato.voces[0], false);
     progreso.style.width = "100%";
     $$<HTMLButtonElement>("hablar").disabled = false;
     $$<HTMLButtonElement>("conectar").disabled = false;
     $$<HTMLButtonElement>("enviar").disabled = false;
     $$<HTMLButtonElement>("simular").disabled = false;
-    await comprobarPuente();
     boton.textContent = "recargar";
   } catch (e) {
     // El servidor de desarrollo responde con el index.html a lo que no encuentra,
@@ -333,8 +320,7 @@ async function leerContrato(raiz: string): Promise<Contrato> {
 
 async function cambiarOrigen(url: string): Promise<void> {
   $$<HTMLInputElement>("origenModelos").value = url;
-  if (activo?.tipo === "pocket") activo.motor.cerrar();
-  activo = null;
+  supertonic = null;
   fichas.clear();
   $$<HTMLButtonElement>("hablar").disabled = true;
   log(`origen de los modelos: ${url}`);
@@ -344,10 +330,6 @@ async function cambiarOrigen(url: string): Promise<void> {
 }
 
 $("cargar").addEventListener("click", () => void cargar());
-$("motor").addEventListener("change", () => {
-  log(`motor: ${tipoElegido()}`);
-  void cargar();
-});
 // Cambiar de origen recarga solo: dejarlo a medias, con el campo cambiado y el
 // motor viejo en memoria, es un estado que nadie quiere y que miente.
 $("descargarHF").addEventListener("click", () => void cambiarOrigen(ORIGENES.huggingface));
@@ -369,14 +351,18 @@ $("origenModelos").addEventListener(
  * masculina», que es lo que pasa por inventarse un dato que no se tiene.
  */
 function detalleDeFabrica(nombre: string): string {
-  if (activo?.tipo === "pocket") return activo.motor.idiomaDeVoz(nombre) ?? "de fábrica";
   return /^F\d$/.test(nombre) ? "femenina" : /^M\d$/.test(nombre) ? "masculina" : "de fábrica";
 }
 
 function pintarFichas(deFabrica: string[]): void {
   for (const nombre of deFabrica) {
     if (!fichas.has(nombre)) {
-      fichas.set(nombre, { nombre, origen: "fabrica", detalle: detalleDeFabrica(nombre) });
+      fichas.set(nombre, {
+        nombre,
+        origen: "fabrica",
+        detalle: detalleDeFabrica(nombre),
+        motor: "supertonic",
+      });
     }
   }
   for (const [nombre, crudo] of Object.entries(locales())) {
@@ -386,6 +372,9 @@ function pintarFichas(deFabrica: string[]): void {
         nombre,
         origen: meta.construida_por ? "construida" : "clonada",
         detalle: (meta.source_file as string) ?? "tuya",
+        // Un .json guardado es un estilo de Supertonic; las de Pocket no se
+        // pueden guardar porque su voz vive dentro del worker.
+        motor: "supertonic",
         estilo: leerEstilo(crudo, nombre),
       });
     }
@@ -457,9 +446,9 @@ $("buscar-voz").addEventListener("input", render);
 async function elegirVoz(nombre: string, escuchar = true): Promise<void> {
   const ficha = fichas.get(nombre);
   if (!ficha) return;
-  // En Pocket una voz es un nombre que el worker ya tiene; en Supertonic es un
-  // fichero de 292 KB que hay que bajar la primera vez.
-  if (activo?.tipo === "supertonic" && !ficha.estilo) {
+  // Una voz de Supertonic es un fichero de 292 KB que hay que bajar la primera
+  // vez; una clonada ya vive en el worker de Pocket.
+  if (ficha.motor === "supertonic" && !ficha.estilo) {
     $("estado").textContent = `descargando la voz ${nombre}…`;
     try {
       ficha.estilo = await descargarEstilo(`${origen()}voice_styles/${nombre}.json`, nombre);
@@ -473,7 +462,7 @@ async function elegirVoz(nombre: string, escuchar = true): Promise<void> {
   vozActual = nombre;
   dato("e-voz", nombre);
   render();
-  if (escuchar && activo && $$<HTMLInputElement>("escucharAlElegir").checked) {
+  if (escuchar && $$<HTMLInputElement>("escucharAlElegir").checked) {
     await hablar();
   }
 }
@@ -516,10 +505,12 @@ async function decir(
     temperatura?: number;
   },
 ): Promise<{ onda: Float32Array; sampleRate: number; ms: number; detalle: string }> {
-  if (!activo) throw new Error("no hay motor cargado");
-  if (activo.tipo === "pocket") {
-    const r = await activo.motor.sintetizar(texto, ficha.nombre, {
-      pasos: opciones.pasos,
+  if (ficha.motor === "pocket") {
+    // Un solo deslizador para los dos motores, y cada uno coge lo que sabe usar:
+    // el que clona no pasa de 4 pasos, y pedirle 8 no es "mejor", es un error.
+    const pasos = Math.min(4, opciones.pasos);
+    const r = await (await motorDeClonado()).sintetizar(texto, ficha.nombre, {
+      pasos,
       temperatura: opciones.temperatura,
       semilla: opciones.semilla,
     });
@@ -533,11 +524,12 @@ async function decir(
       onda,
       sampleRate: r.sampleRate,
       ms: r.ms,
-      detalle: `RTF ${rtf.toFixed(2)} · ${opciones.pasos} pasos${temp} · pocket · ${ficha.nombre}`,
+      detalle: `RTF ${rtf.toFixed(2)} · ${pasos} pasos${temp} · pocket · ${ficha.nombre}`,
     };
   }
+  if (!supertonic) throw new Error("el motor no esta cargado todavia");
   if (!ficha.estilo) throw new Error(`la voz ${ficha.nombre} no esta cargada`);
-  const r = await activo.motor.sintetizar(texto, ficha.estilo, opciones);
+  const r = await supertonic.sintetizar(texto, ficha.estilo, opciones);
   return {
     onda: r.onda,
     sampleRate: r.sampleRate,
@@ -552,7 +544,7 @@ let turno = 0;
 
 async function hablar(): Promise<void> {
   const ficha = vozActual ? fichas.get(vozActual) : null;
-  if (!activo || !ficha) return;
+  if (!ficha) return;
   const mio = ++turno;
   const boton = $$<HTMLButtonElement>("hablar");
   boton.disabled = true;
@@ -623,40 +615,30 @@ for (const id of ["pasos", "velocidad"]) {
 // --------------------------------------------------------------- crear voz
 
 /**
- * Clonar desde una grabación necesita el puente (ADR 0012, decisión 6), y hoy no
- * hay ninguno que funcione: los cuatro intentos están medidos en
- * docs/evidencia.md y el mejor llega a 0,227 sobre un objetivo de 0,55. Así que
- * este camino sale **apagado** y lo dice, en vez de ofrecer un botón que devuelve
- * la voz media. Lo que sí funciona es importar un `.json` construido fuera.
+ * Clonar siempre está ofrecido: el motor que lo hace se baja en cuanto alguien
+ * suelta una grabación, no antes. Antes esto preguntaba por un puente que había
+ * que construir aparte y casi nunca existía; ahora no hay nada que comprobar.
  */
-async function comprobarPuente(): Promise<boolean> {
-  const puede = puedeClonar();
-  pastilla("p-clonar", puede ? "clona desde audio" : "solo .json", puede ? "ok" : "aviso");
-  $$<HTMLButtonElement>("grabar").disabled = !puede;
-  return puede;
+function ofrecerClonado(): void {
+  pastilla("p-clonar", "clona desde audio", "ok");
+  $$<HTMLButtonElement>("grabar").disabled = false;
 }
 
 /**
- * Clonar desde una grabación. Con Pocket es medio segundo; con Supertonic no se
- * puede y se dice por qué, en vez de dejar un botón muerto.
+ * Clonar desde una grabación. La primera vez se baja el motor de clonado, que es
+ * lo que tarda; a partir de ahí es medio segundo.
  */
 async function clonar(fichero: File | Blob, nombre: string): Promise<void> {
-  if (!activo || activo.tipo !== "pocket") {
-    pastilla("p-clonar", "no con este motor", "error");
-    $("estado").textContent =
-      "Supertonic no sabe clonar desde una grabación: su encoder de voz nunca se publicó." +
-      " Cambia el motor a Pocket arriba y vuelve a soltar el fichero.";
-    log(`rechazado ${nombre}: el motor activo no clona`);
-    return;
-  }
   try {
+    const motor = await motorDeClonado();
     pastilla("p-clonar", "clonando…", "aviso");
     const t0 = performance.now();
-    const segundos = await activo.motor.clonarFichero(fichero as File, nombre);
+    const segundos = await motor.clonarFichero(fichero as File, nombre);
     fichas.set(nombre, {
       nombre,
       origen: "clonada",
       detalle: `${segundos.toFixed(0)} s de voz`,
+      motor: "pocket",
       estilo: undefined,
     });
     pastilla("p-clonar", "clona desde audio", "ok");
@@ -688,6 +670,7 @@ async function importar(fichero: File): Promise<void> {
       nombre,
       origen: meta.construida_por ? "construida" : "clonada",
       detalle: (meta.source_file as string) ?? "importada",
+      motor: "supertonic",
       estilo,
     });
     guardarLocal(nombre, estilo);
@@ -728,12 +711,6 @@ function guardarLocal(nombre: string, estilo: Estilo): void {
  */
 async function anadir(f: File): Promise<void> {
   if (/\.json$/i.test(f.name) || f.type === "application/json") {
-    if (activo?.tipo === "pocket") {
-      $("estado").textContent = `«${f.name}» es una voz de Supertonic y el motor activo es
-        Pocket: sus estilos no se cruzan. Cambia el motor arriba, o suelta una grabación para
-        clonarla aquí.`.replace(/\s+/g, " ");
-      return;
-    }
     await importar(f);
     return;
   }
@@ -782,7 +759,7 @@ $("grabar").addEventListener("click", async () => {
   } catch (e) {
     log(`ERROR al grabar: ${String(e)}`);
   } finally {
-    boton.disabled = !puedeClonar();
+    boton.disabled = false;
   }
 });
 
@@ -824,7 +801,6 @@ function vozParaUsuario(usuario: string): Ficha | undefined {
 
 const cola = new Cola(
   async (m: Mensaje) => {
-    if (!activo) return null;
     const ficha =
       $$<HTMLSelectElement>("politica").value === "usuario"
         ? vozParaUsuario(m.usuario ?? "")
@@ -832,7 +808,7 @@ const cola = new Cola(
           ? fichas.get(vozActual)
           : undefined;
     if (!ficha) return null;
-    if (activo.tipo === "supertonic" && !ficha.estilo) {
+    if (ficha.motor === "supertonic" && !ficha.estilo) {
       ficha.estilo = await descargarEstilo(
         `${origen()}voice_styles/${ficha.nombre}.json`,
         ficha.nombre,
@@ -967,4 +943,7 @@ function desdeTwitch(m: MensajeTwitch): void {
 pintarFichas([]);
 log("página lista; cargando el motor sola");
 // Sin botones: la página se abre y habla. Esa es toda la instalación.
+// Clonar no depende de que Supertonic haya cargado: son motores distintos y el
+// que clona se baja aparte. Si la lectura falla, esto tiene que seguir en pie.
+ofrecerClonado();
 void cargar();

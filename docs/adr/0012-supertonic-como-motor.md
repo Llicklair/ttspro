@@ -1,6 +1,6 @@
 # 12. Supertonic 3 como motor, y el voice builder que hay que reconstruir
 
-**Estado:** propuesta · **Fecha:** 2026-09-15 · **Decide:** Marcos · **Sustituye a:** [0004](0004-fonemas-con-espeak-ng-en-los-dos-lados.md), [0007](0007-clonacion-como-postproceso.md), [0008](0008-la-voz-base-es-una-voz-de-piper.md) · **Retira:** reglas **1** y **8** de [ARCHITECTURE.md](../../ARCHITECTURE.md) · **Sigue a:** [0011](0011-paquetes-de-voz-y-hardware.md)
+**Estado:** aceptada, con [enmienda del 2026-09-16](#enmienda-2026-09-16--la-decisión-6-era-falsa-y-clona-otro-modelo) · **Fecha:** 2026-09-15 · **Decide:** Marcos · **Sustituye a:** [0004](0004-fonemas-con-espeak-ng-en-los-dos-lados.md), [0007](0007-clonacion-como-postproceso.md), [0008](0008-la-voz-base-es-una-voz-de-piper.md) · **Retira:** reglas **1** y **8** de [ARCHITECTURE.md](../../ARCHITECTURE.md) · **Sigue a:** [0011](0011-paquetes-de-voz-y-hardware.md)
 
 ## Contexto
 
@@ -143,3 +143,69 @@ alcanzó, y si un timbre cae fuera, cae fuera. Eso no se decide en un ADR: se mi
 chat entero ([ADR 0010](0010-modo-chat-para-twitch.md)), la detección de hardware y la calibración
 ([ADR 0011](0011-paquetes-de-voz-y-hardware.md)), y el speaker encoder, que ahora tiene **dos**
 oficios: medir, como siempre, y ser la entrada del puente.
+
+
+## Enmienda 2026-09-16 · la decisión 6 era falsa, y clona otro modelo
+
+**Estado:** aceptada · **Decide:** Marcos (*«sino busca un voice builder ya hecho que funcione en
+segundos»*, y después *«si me parece bien, pocket solo para clonar»*)
+
+La decisión 6 decía que el voice builder **se reconstruye**. No se puede, y ahora está medido en
+vez de supuesto. Seis intentos, todos en [evidencia](../evidencia.md) con su fecha:
+
+| Intento | Qué se probó | Resultado |
+|---|---|---|
+| 1 | Mezcla de las diez voces, búsqueda por entropía cruzada | 0,227 |
+| 2 | Invertir el vocoder para recuperar el `ae.encoder` que falta | **0,832–0,943** — la única que salió |
+| 3 | Puente `audio → estilo` por regresión ridge sobre las PCA del espacio de estilos | no hay señal que aprender |
+| 4 | Ajuste del estilo por gradiente contra el latente | el optimizador baja la pérdida, la similitud no sube |
+| 5 | Lo mismo, promediando el ruido sobre varios sorteos | igual |
+| 6 | Prueba de verdad conocida: reconstruir **una voz de fábrica desde su propio audio** | falla, con la respuesta al alcance |
+
+El 6 es el que cierra la línea. Si el método no recupera un estilo que existe, partiendo del audio
+que ese mismo estilo generó, el problema no es el ajuste ni los datos: es que el latente que se
+observa lo domina el ruido de la EDO y no la identidad. La decisión 6 queda **retirada**; el
+`constructor` sobrevive porque hace otra cosa —mezclar las diez voces que ya hay— y el `puente`,
+el `ajustador` y el `inversor` se quedan en el repo como lo que son, el código detrás de esas
+medidas.
+
+**Quien clona es un segundo modelo.** [Pocket TTS](https://huggingface.co/kyutai/pocket-tts)
+(Kyutai, enero de 2026, 100 M parámetros, CC BY 4.0) publica lo que a Supertonic le falta: su
+encoder de audio, `mimi_encoder.onnx`, con `encode_voice(wav)` como llamada única. En el navegador
+llega por [`pocket-tts-onnx`](https://github.com/thewh1teagle/pocket-tts-onnx), TypeScript sobre
+onnxruntime-web dentro de un Worker. Clona en 0,44 s medidos en CPU.
+
+Y **solo clona**. Leer lo hace Supertonic, que es mejor en todo lo que se midió —WER 0,008 contra
+0,027, 44,1 kHz contra 24, 31 idiomas contra 7, diez voces de fábrica contra dos—, así que las dos
+voces de fábrica de Pocket **no se ofrecen** y el modelo **no se descarga al abrir la página**: son
+216 MB que quien solo quiere leer texto no tiene por qué bajarse.
+
+Esto no es un selector. Durante unas horas lo fue, y estaba mal: obligaba al usuario a saber qué
+modelo hace qué para poder pedir lo que quería, y el mismo `.json` de voz se aceptaba o se
+rechazaba según dónde estuviera un desplegable. **El usuario elige una voz; la voz sabe quién la
+habla.** Un deslizador de calidad para los dos, y cada motor coge lo que sabe usar — el que clona
+no pasa de 4 pasos y se le recortan, en vez de mandarle un valor que no admite.
+
+**Lo que esto cuesta, y hay que decirlo entero.**
+
+1. **Vuelve la obligación GPL-3.0 que la decisión 4 daba por ida.** `pocket-tts-onnx` depende de
+   `espeak-ng`: 18,5 MB de wasm, GPL-3.0-or-later. El español **nunca lo invoca** —su bundle no
+   pasa por el fonemizador—, pero un build desplegado de `web/` lo **distribuye**, y distribuir es
+   lo que activa la licencia. Las opciones están en [THIRD_PARTY.md](../../THIRD_PARTY.md) y la
+   decisión está **abierta**.
+2. **La similitud sigue por debajo del criterio.** 0,413 de media sobre 14 locutores, contra un
+   objetivo de 0,55, y el techo del propio encoder de medida es 0,760. No es un parámetro mal
+   puesto: se barrió temperatura y pasos, y no se mueve; no sigue a la calidad de la referencia
+   (r = +0,247); se estanca en 0,41–0,45 locutor a locutor. Lo único que la movió fue **darle más
+   audio** — +13,1 puntos de 2 s a 20 s—, y por eso la página graba 20 y lo dice cuando le das
+   menos de 15. Subir de ahí necesita otro encoder publicado, no otro ajuste aquí.
+3. **Dos frecuencias de salida.** 44,1 kHz leyendo y 24 clonando. Cada resultado lleva la suya, así
+   que no hay remuestreo escondido en el camino, pero el mismo texto con dos voces distintas puede
+   salir con dos frecuencias distintas, y quien use la librería tiene que leer `r.sampleRate` en
+   vez de asumirla.
+4. **Pocket no tiene control de velocidad.** Se estira el tiempo después con WSOLA
+   (`web/src/runtime/velocidad.ts`), que no toca el tono — lo obvio, subir el `playbackRate`, sube
+   también el tono, y en una voz clonada el tono es la mitad de lo que la hace reconocible.
+
+**Y la decisión 7 se amplía:** ya no hay una licencia de pesos, hay dos. OpenRAIL-M para
+Supertonic, CC BY 4.0 para Pocket, y la GPL del fonemizador que viene con el segundo.

@@ -1772,6 +1772,44 @@ encoder») aplicada sin medir, y en la direccion contraria a la que parecia.
 
 ---
 
+## 2026-09-16 · Fuera el selector de motor: se elige una voz, no un modelo — CONSECUENCIA DE DISENO
+
+**Montaje.** Marcos, despues de probar la pagina con los dos motores: *«ha mejorado aunque las
+voces de fabrica se escuchan algo mal»*. Las de fabrica que estaba oyendo eran las **de Pocket**
+(`javert` y `lola`), porque la pagina arrancaba en Pocket por ser el unico que clona. Y eran
+peores: mismo arnes, Supertonic da WER 0,008 a 44,1 kHz y Pocket 0,027 a 24. Decision de Marcos:
+*«si me parece bien, pocket solo para clonar»*.
+
+**Lo que estaba mal, y no es una preferencia.** El selector obligaba a saber que modelo hace que
+para poder pedir lo que se queria, y hacia que **el mismo fichero se aceptara o se rechazara segun
+donde estuviera un desplegable**: soltar un `.json` de estilo con Pocket activo devolvia «el motor
+activo es Pocket», y soltar un wav con Supertonic activo devolvia «cambia el motor arriba». Dos
+mensajes de error que solo existian porque el usuario tenia un mando que no deberia tener.
+
+**Consecuencia.** El selector desaparece. Se elige una **voz**, y cada ficha lleva quien la habla:
+
+| | Antes | Ahora |
+|---|---|---|
+| Al abrir la pagina | se descarga el motor elegido en el desplegable | se descarga Supertonic y ya esta |
+| Voces que se ofrecen | 10 o 2, segun el desplegable | **10**, las de Supertonic |
+| `javert` y `lola` | en la lista | no se ofrecen |
+| Soltar un `.json` | error si el motor era Pocket | se importa |
+| Soltar un wav | error si el motor era Supertonic | se clona, bajando Pocket en ese momento |
+| Pocket en disco de quien solo lee | 177 MB | **0** |
+| Deslizador de calidad | 1-4 (el tope de Pocket) | 1-16, por defecto 8, y se recorta a 4 para el que clona |
+
+El deslizador es el unico sitio donde los dos motores se pisaban de verdad: la rodilla de
+Supertonic esta en 8 pasos y Pocket no pasa de 4. Un solo mando, y cada motor coge lo que sabe
+usar; mandarle 8 a Pocket no es «mejor», es un valor que no admite.
+
+**Y la libreria deja de tener un metodo muerto.** `tts.clonar()` lanzaba una excepcion explicando
+por que no se podia; ahora baja Pocket en la primera llamada y devuelve el nombre de la voz, ya
+elegida. `web/e2e/libreria.spec.ts` comprobaba el texto de esa excepcion — ahora comprueba que el
+metodo existe, y el camino de verdad lo cubre `pocket.spec.ts` por la pagina, que es donde se puede
+pagar la descarga de 216 MB una vez.
+
+**Lo que NO cambia:** los 0,413 de similitud. Esto es una decision de interfaz, no de calidad.
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una

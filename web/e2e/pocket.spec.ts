@@ -3,11 +3,12 @@
  *
  * Esto es lo que Marcos pedía y no había: soltar una grabación y que salga una
  * voz. Supertonic no puede — su encoder no se publicó y reconstruirlo no llega,
- * seis medidas en docs/evidencia.md —, así que la página trae los dos motores y
- * este test comprueba el camino entero del que clona.
+ * seis medidas en docs/evidencia.md —, así que la página trae un segundo motor
+ * que **solo** clona, y este test comprueba ese camino entero.
  *
- * Los pesos (177 MB, más 39 del encoder al clonar) vienen de Hugging Face y se
- * quedan en la Cache API, así que la primera tirada es lenta y las siguientes no.
+ * No hay selector de motor: se suelta el fichero y la página baja lo que le hace
+ * falta (216 MB) en ese momento. Vienen de Hugging Face y se quedan en la Cache
+ * API, así que la primera tirada es lenta y las siguientes no.
  */
 
 import { dirname, resolve } from "node:path";
@@ -26,22 +27,19 @@ test("pocket: carga, clona desde un wav y habla con esa voz", async ({ page }) =
   });
 
   await page.goto("/");
-  // El selector arranca en pocket: es el único que clona.
-  await expect(page.locator("#motor")).toHaveValue("pocket");
   await expect(page.locator("#estado")).toContainText("listo", { timeout: 1_500_000 });
-  await expect(page.locator("#e-motor")).toContainText("pocket");
+  await expect(page.locator("#e-motor")).toContainText("supertonic");
 
+  // Las voces que se ofrecen son las diez de Supertonic y ninguna más: las dos de
+  // fábrica del motor que clona (javert, lola) no se listan, porque suenan peor y
+  // porque el motor ni siquiera está cargado todavía.
   const deFabrica = await page.locator(".voz").count();
-  expect(deFabrica).toBeGreaterThan(0);
   const nombres = await page.locator(".voz .nombre").allInnerTexts();
-  const detalles = await page.locator(".voz .detalle").allInnerTexts();
-  console.log(`voces de fábrica: ${deFabrica}`, nombres, detalles);
-  // Pocket no dice el sexo de sus voces en ningún sitio: su manifiesto trae el
-  // idioma y nada más. Deducirlo del nombre daba «lola: masculina», así que
-  // aquí se fija que no se invente.
-  expect(detalles.join(" ")).not.toMatch(/masculina|femenina/);
+  console.log(`voces de fábrica: ${deFabrica}`, nombres);
+  expect(nombres).not.toContain("javert");
+  expect(nombres).not.toContain("lola");
 
-  // Y clonar está ofrecido, no apagado.
+  // Y clonar está ofrecido desde el principio, no apagado a la espera de nada.
   await expect(page.locator("#p-clonar")).toHaveText("clona desde audio");
   await expect(page.locator("#grabar")).toBeEnabled();
 
@@ -57,7 +55,7 @@ test("pocket: carga, clona desde un wav y habla con esa voz", async ({ page }) =
   // Y habla con ella.
   await page.fill("#texto", "Hola, esto lo dice una voz clonada de un fichero.");
   await page.click("#hablar");
-  await expect(page.locator("#medidas")).toContainText("pocket", { timeout: 600_000 });
+  await expect(page.locator("#medidas")).toContainText("pocket", { timeout: 1_500_000 });
   const medidas = await page.locator("#medidas").innerText();
   console.log("medidas:", medidas);
   expect(medidas).toContain("referencia");

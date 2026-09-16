@@ -12,6 +12,11 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   publicDir: false,
+  // El motor que clona corre dentro de un Worker, y ese Worker se parte en
+  // trozos. Rollup rechaza `iife` —el valor por defecto de Vite— en cuanto hay
+  // mas de un trozo, asi que el build de la libreria fallaba entero desde que
+  // `pocket-tts-onnx` entro. Mismo arreglo que en vite.config.ts.
+  worker: { format: "es" },
   build: {
     target: "esnext",
     outDir: "dist/lib",

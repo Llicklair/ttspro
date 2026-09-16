@@ -28,15 +28,11 @@ async function listo(page: Page) {
 }
 
 /**
- * Estos tests son los del motor Supertonic, y ya no es el de por defecto: la
- * página arranca en Pocket porque es el único que clona (ver `pocket.spec.ts`).
- * Cambiar el selector recarga el motor solo.
+ * Supertonic es el motor que arranca con la página: es el que lee. El que clona
+ * se baja solo cuando alguien suelta una grabación (ver `pocket.spec.ts`), así
+ * que aquí no hay nada que elegir — solo esperar.
  */
 async function conSupertonic(page: Page) {
-  await page.selectOption("#motor", "supertonic");
-  // Esperar a `#estado` diciendo "listo" no vale: sigue diciendo el "listo" del
-  // motor anterior mientras el nuevo carga, y el test se cuela por delante. Lo
-  // que cambia solo cuando el motor esta puesto es `#e-motor`.
   await expect(page.locator("#e-motor")).toContainText("supertonic", { timeout: 600_000 });
   await listo(page);
 }
@@ -72,14 +68,13 @@ test("la página monta: dos modos, 31 idiomas y los ajustes", async ({ page }) =
   // Los 31 idiomas del motor, menos el comodín `na`.
   expect(await page.locator("#idioma option").count()).toBe(31);
 
-  await page.selectOption("#motor", "supertonic");
   await page.click("#abrir-ajustes");
   await expect(page.locator("#origenModelos")).toHaveValue(hayModelos ? "/models/supertonic/" : HF);
   await page.click("#cerrar-ajustes");
   expect(errores, `errores de JS en la página: ${errores.join(" | ")}`).toEqual([]);
 });
 
-test("supertonic: se elige en el selector y queda cargado", async ({ page }) => {
+test("supertonic: arranca solo y queda cargado", async ({ page }) => {
   test.skip(!hayModelos, "corre `ttspro.supertonic.descargar` y `npm run preparar`");
   test.setTimeout(900_000);
   page.on("pageerror", (e) => console.log("pageerror:", e.message));
@@ -106,7 +101,6 @@ test("sin modelos locales cae sola en Hugging Face", async ({ page }) => {
     ruta.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><html></html>" }),
   );
   await page.goto("/");
-  await page.selectOption("#motor", "supertonic");
   await expect(page.locator("#estado")).toContainText("Hugging Face", { timeout: 60_000 });
   await expect(page.locator("#origenModelos")).toHaveValue(HF);
   expect(await page.locator("#registro").innerText()).toContain("no tiene los grafos");
@@ -154,7 +148,9 @@ test("elegir una voz la dice al momento, y dos voces suenan distinto", async ({ 
   expect(errores, `errores de JS: ${errores.join(" | ")}`).toEqual([]);
 });
 
-test("añadir una voz: el .json entra y el audio se rechaza diciendo por qué", async ({ page }) => {
+test("añadir una voz: un .json de estilo entra por la misma puerta que un audio", async ({
+  page,
+}) => {
   test.skip(!hayModelos, "corre `ttspro.supertonic.descargar` y `npm run preparar`");
   test.setTimeout(900_000);
   await page.goto("/");
@@ -162,10 +158,15 @@ test("añadir una voz: el .json entra y el audio se rechaza diciendo por qué", 
   await page.uncheck("#escucharAlElegir");
 
   // La entrada de fichero no lleva `accept`: con `audio/*` el explorador de
-  // Windows escondia los audios, y con `.json` escondia todo lo demas. Aqui se
-  // fija que acepte cualquier cosa y que decida el codigo.
+  // Windows escondia los audios, y con `.json` escondia todo lo demas. Hay UNA
+  // puerta y decide el codigo por el contenido, no el sistema por el MIME.
   await expect(page.locator("#importar")).not.toHaveAttribute("accept", /.+/);
   await expect(page.locator("#importar")).toBeEnabled();
+
+  // Y clonar esta ofrecido desde el arranque, sin depender de que Supertonic
+  // haya cargado: son motores distintos y el que clona se baja aparte.
+  await expect(page.locator("#p-clonar")).toHaveText("clona desde audio");
+  await expect(page.locator("#grabar")).toBeEnabled();
 
   // Un .json entra: se coge una voz ya servida y se sube con otro nombre, sin
   // fixture nueva, por el mismo camino que un .json salido de `constructor`.
@@ -179,18 +180,6 @@ test("añadir una voz: el .json entra y el audio se rechaza diciendo por qué", 
   expect(await page.locator(".voz").count()).toBe(11);
   await expect(page.locator(".marca")).toHaveText("clonada");
 
-  // Un audio se acepta en el dialogo y se rechaza CON explicacion, en vez de no
-  // aparecer siquiera en el explorador: cuatro intentos de clonar estan medidos
-  // en docs/evidencia.md y el mejor llega a 0,227 sobre 0,55.
-  await page.setInputFiles("#importar", {
-    name: "mi-voz.wav",
-    mimeType: "audio/wav",
-    buffer: Buffer.from("RIFF....WAVE"),
-  });
-  await expect(page.locator("#estado")).toContainText("clonar desde una grabación", {
-    timeout: 30_000,
-  });
-  await expect(page.locator("#p-clonar")).toHaveText("no se puede clonar");
-  await expect(page.locator("#grabar")).toBeDisabled();
-  await expect(page.locator("#nota-clonar")).toContainText("todavía no funciona");
+  // Soltar un audio aqui bajaria los 216 MB del motor que clona; ese camino se
+  // mide entero en `pocket.spec.ts`, que es donde se paga esa descarga una vez.
 });

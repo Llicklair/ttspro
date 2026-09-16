@@ -28,11 +28,11 @@ test("pocket: carga, clona desde un wav y habla con esa voz", async ({ page }) =
 
   await page.goto("/");
   await expect(page.locator("#estado")).toContainText("listo", { timeout: 1_500_000 });
-  await expect(page.locator("#e-motor")).toContainText("supertonic");
+  await expect(page.locator("#e-motor")).toContainText("predeterminada");
 
-  // Las voces que se ofrecen son las diez de Supertonic y ninguna más: las dos de
-  // fábrica del motor que clona (javert, lola) no se listan, porque suenan peor y
-  // porque el motor ni siquiera está cargado todavía.
+  // Las voces que se ofrecen son las diez predeterminadas y ninguna más: las dos
+  // de fábrica del modelo que clona (javert, lola) no se listan, porque suenan
+  // peor y porque ese modelo ni siquiera está cargado todavía.
   const deFabrica = await page.locator(".voz").count();
   const nombres = await page.locator(".voz .nombre").allInnerTexts();
   console.log(`voces de fábrica: ${deFabrica}`, nombres);
@@ -55,7 +55,7 @@ test("pocket: carga, clona desde un wav y habla con esa voz", async ({ page }) =
   // Y habla con ella.
   await page.fill("#texto", "Hola, esto lo dice una voz clonada de un fichero.");
   await page.click("#hablar");
-  await expect(page.locator("#medidas")).toContainText("pocket", { timeout: 1_500_000 });
+  await expect(page.locator("#medidas")).toContainText("clonada", { timeout: 1_500_000 });
   const medidas = await page.locator("#medidas").innerText();
   console.log("medidas:", medidas);
   expect(medidas).toContain("referencia");

@@ -86,6 +86,22 @@ interface Contrato {
  *
  * El usuario no elige motor. Elige una voz, y la voz sabe quien la habla.
  */
+/**
+ * Como se llaman los dos motores **de cara al usuario**.
+ *
+ * «Supertonic» y «Pocket» no le dicen nada a quien abre la pagina: le dicen algo
+ * a quien lee el codigo. Lo que el usuario necesita saber de una voz es si viene
+ * con el programa o si la ha hecho el, asi que eso es lo que se escribe.
+ *
+ * El credito a los dos modelos no desaparece por esto: esta en el panel de
+ * ajustes, con su licencia, que ademas es obligatorio — Pocket TTS es CC BY 4.0
+ * y la atribucion es una condicion de esa licencia, no una cortesia.
+ */
+const NOMBRE_MOTOR = {
+  supertonic: "predeterminada",
+  pocket: "clonada",
+} as const;
+
 let supertonic: Supertonic | null = null;
 let pocket: Pocket | null = null;
 let contrato: Contrato | null = null;
@@ -252,7 +268,6 @@ async function cargar(respaldo = true): Promise<void> {
       return;
     }
     supertonic = st;
-    dato("e-motor", `${contrato.motor} · ${contrato.frecuencia_salida_hz / 1000} kHz`);
     dato("e-proveedor", st.proveedor);
     $("estado").textContent = `listo: ${(st.bytes / 1e6).toFixed(0)} MB en ${st.proveedor}`;
     log(`supertonic cargado en ${st.proveedor}`);
@@ -461,6 +476,11 @@ async function elegirVoz(nombre: string, escuchar = true): Promise<void> {
   }
   vozActual = nombre;
   dato("e-voz", nombre);
+  // El motor ya no se elige, asi que decir cual esta cargado no ayuda a nadie.
+  // Lo que si cambia con la voz, y se nota al oirla, es de donde sale y a que
+  // frecuencia: 44,1 kHz las que vienen con el programa, 24 las clonadas.
+  const kHz = ficha.motor === "pocket" ? 24 : (contrato?.frecuencia_salida_hz ?? 44100) / 1000;
+  dato("e-motor", `${NOMBRE_MOTOR[ficha.motor]} · ${kHz} kHz`);
   render();
   if (escuchar && $$<HTMLInputElement>("escucharAlElegir").checked) {
     await hablar();
@@ -524,7 +544,7 @@ async function decir(
       onda,
       sampleRate: r.sampleRate,
       ms: r.ms,
-      detalle: `RTF ${rtf.toFixed(2)} · ${pasos} pasos${temp} · pocket · ${ficha.nombre}`,
+      detalle: `RTF ${rtf.toFixed(2)} · ${pasos} pasos${temp} · ${NOMBRE_MOTOR.pocket} · ${ficha.nombre}`,
     };
   }
   if (!supertonic) throw new Error("el motor no esta cargado todavia");
@@ -534,7 +554,7 @@ async function decir(
     onda: r.onda,
     sampleRate: r.sampleRate,
     ms: r.ms,
-    detalle: `RTF ${r.rtf.toFixed(2)} · ${r.pasos} pasos · ${ficha.nombre}`,
+    detalle: `RTF ${r.rtf.toFixed(2)} · ${r.pasos} pasos · ${NOMBRE_MOTOR.supertonic} · ${ficha.nombre}`,
   };
 }
 

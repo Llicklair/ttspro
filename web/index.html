@@ -215,7 +215,7 @@
 
         <div class="estado">
           <span class="dato destacado"><b id="e-voz">—</b><i>voz</i></span>
-          <span class="dato"><b id="e-motor">sin cargar</b><i>motor</i></span>
+          <span class="dato"><b id="e-motor">sin cargar</b><i>tipo de voz</i></span>
           <span class="dato"><b id="e-proveedor">—</b><i>ejecuta en</i></span>
           <span class="dato"><b id="e-ms">—</b><i>por frase</i></span>
           <span class="hueco"></span>
@@ -226,10 +226,11 @@
         <div class="barra"><i id="progreso"></i></div>
         <p id="estado" class="mono">arrancando…</p>
         <p class="nota" style="margin:.4rem 0 0">
-          No hay que elegir motor: eliges una voz y la página sabe quién la habla. Para leer usa
-          <strong>Supertonic</strong> —44,1 kHz, 31 idiomas—, que se baja al abrir (398 MB); si
-          clonas, se baja además el motor que sabe hacerlo (216 MB, solo la primera vez). Después
-          todo sale de la caché del navegador.
+          No hay nada que elegir: eliges una voz y el programa sabe leerla. Las
+          <strong>predeterminadas</strong> vienen con él —44,1 kHz, 31 idiomas— y se bajan al abrir
+          (398 MB); si clonas una tuya, se baja además lo que hace falta para eso (216 MB, solo la
+          primera vez). Después todo sale de la caché del navegador. Los dos modelos están
+          acreditados en <em>ajustes</em>.
         </p>
       </header>
 
@@ -265,11 +266,12 @@
               <span class="campo en-linea">o suelta el fichero aquí</span>
             </div>
             <p class="nota" id="nota-clonar" style="margin:.7rem 0 0">
-              Suelta aquí una grabación (5–20 s) y sale una voz. La primera vez hay que bajar el
-              motor que clona (216 MB), luego es medio segundo. Supertonic no puede hacerlo: su
-              encoder de voz nunca se publicó, y los seis intentos de reconstruirlo están medidos
-              en <a href="https://github.com/Llicklair/ttspro/blob/main/docs/evidencia.md">docs/evidencia.md</a>.
-              También entra un <code>.json</code> de estilo de Supertonic.
+              Suelta aquí una grabación (5–20 s) y sale una voz. La primera vez hay que bajar
+              216 MB; luego es medio segundo. Clonar lo hace un modelo distinto del que lee las
+              voces predeterminadas, porque el de esas nunca publicó la pieza que hace falta y los
+              seis intentos de reconstruirla están medidos en
+              <a href="https://github.com/Llicklair/ttspro/blob/main/docs/evidencia.md">docs/evidencia.md</a>.
+              También entra un <code>.json</code> de voz.
               <strong>Clona solo voces cuyo dueño te haya dado permiso.</strong>
             </p>
           </div>
@@ -459,9 +461,13 @@
             <button id="usarHF">usar Hugging Face</button>
           </div>
           <p class="nota" style="margin:.6rem 0 0">
-            Cuatro grafos ONNX (398 MB) y las voces en JSON. Los pesos son de
-            <a href="https://huggingface.co/supertone-oss-archive/supertonic-3" target="_blank" rel="noreferrer">Supertonic 3</a>,
-            con licencia <strong>OpenRAIL-M</strong>, que tiene restricciones de uso.
+            Las voces predeterminadas son cuatro grafos ONNX (398 MB) más las voces en JSON, de
+            <a href="https://huggingface.co/supertone-oss-archive/supertonic-3" target="_blank" rel="noreferrer">Supertonic 3</a>
+            (Supertone), con licencia <strong>OpenRAIL-M</strong>, que tiene restricciones de uso.
+            Clonar lo hace
+            <a href="https://huggingface.co/kyutai/pocket-tts" target="_blank" rel="noreferrer">Pocket TTS</a>
+            (Kyutai), con licencia <strong>CC BY 4.0</strong>, que obliga a citarlo: por eso está
+            aquí aunque su nombre no aparezca en el resto de la página.
           </p>
         </fieldset>
 

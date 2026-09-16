@@ -33,7 +33,9 @@ async function listo(page: Page) {
  * que aquí no hay nada que elegir — solo esperar.
  */
 async function conSupertonic(page: Page) {
-  await expect(page.locator("#e-motor")).toContainText("supertonic", { timeout: 600_000 });
+  // La barra no dice que motor esta cargado —el usuario no elige motor—, dice de
+  // que tipo es la voz que suena. Las que vienen con el programa son estas.
+  await expect(page.locator("#e-motor")).toContainText("predeterminada", { timeout: 600_000 });
   await listo(page);
 }
 

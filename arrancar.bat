@@ -29,9 +29,20 @@ if not exist "web\node_modules\" (
   goto :fallo
 )
 
-if exist "models\tts.onnx" if exist "models\conversor.onnx" if exist "models\voz.onnx" goto :listo
-echo == Models missing: building them from public weights (about a minute) ==
-call uv run python -m ttspro.export.modelos --sin-encoder
+rem The engine is four ONNX graphs, 398 MB (ADR 0012). They are NOT required to
+rem start: the page pulls them straight from Hugging Face with its own button,
+rem which is the no-install path. Keeping them locally only makes the page fast,
+rem so a missing models\supertonic is a question, never a failure.
+if exist "models\supertonic\onnx\vector_estimator.onnx" goto :listo
+echo.
+echo == Supertonic 3 is not downloaded yet (398 MB) ==
+echo    The page works without it: press "descargar de Hugging Face" there and
+echo    the browser fetches the graphs itself, no install needed.
+echo    Keeping a local copy is faster on every reload.
+echo.
+choice /c YN /n /m "Download Supertonic 3 now? [Y/N] "
+if errorlevel 2 goto :listo
+call uv run python -m ttspro.supertonic.descargar
 if errorlevel 1 goto :fallo
 
 :listo

@@ -1736,6 +1736,40 @@ medido: **Pocket clona, Supertonic habla mas idiomas** — incluidos algunos que
 lista. Quien quiera leer catalan, gallego o cualquier lengua romanica que no este, que pruebe
 Supertonic; con Pocket no hay nada que hacer.
 
+## 2026-09-16 · «Genera mucho ruido estatico de fondo» — ERA EL NIVELADO DE LA REFERENCIA
+
+**Montaje.** Marcos, clonando una voz: *«se clona bien pero genera como mucho ruido estatico de
+fondo»*. Habia dos sospechosos, los dos anadidos ese mismo dia, y solo uno podia ser:
+
+    nivelar la SALIDA      ganancia constante -> NO puede cambiar la relacion senal/ruido
+    nivelar la REFERENCIA  hasta +4x -> sube su suelo de ruido antes de encodearla
+
+La primera es aritmetica y se descarta sin medir. La segunda se mide: se parte la salida en
+ventanas de 50 ms, el percentil 90 de sus RMS es la voz y el percentil 10 el fondo, y la distancia
+entre ambos es lo limpio que suena.
+
+Primer intento **no valia**: la referencia del repo ya esta a −17,8 dB, asi que el nivelado le
+aplicaba 0,94x y la hipotesis ni se activaba. Repetido simulando lo que de verdad llega — una
+grabacion floja y con siseo, x0,12 mas ruido blanco, −36,2 dB RMS, donde el nivelado si aplica
+el **4x** completo:
+
+| Referencia | Senal/ruido de la salida | Suelo de ruido |
+|---|---|---|
+| **Cruda** | **37,7 dB** | −78,0 dB |
+| **Nivelada** | **26,0 dB** | −53,8 dB |
+
+**Nivelar la referencia cuesta 11,7 dB de senal/ruido y sube el suelo 24 dB.** Y lo interesante:
+la senal/ruido de la propia referencia **no cambia** (28,9 dB en los dos casos, como tiene que ser
+con una ganancia constante). Lo que cambia es que **el encoder es sensible al nivel absoluto**: con
+la referencia amplificada se queda el siseo como parte de la voz.
+
+**Consecuencia.** Fuera el nivelado de la referencia — era invencion propia, el paquete usa esos
+niveladores solo para los marcos de salida. El de la salida se queda: iguala el volumen entre voces,
+que en el chat se nota, y no puede empeorar nada.
+
+La leccion, que es la misma de otras veces hoy: una idea razonable («normalizar la entrada ayuda al
+encoder») aplicada sin medir, y en la direccion contraria a la que parecia.
+
 ---
 
 ## Mediciones pendientes que deciden algo

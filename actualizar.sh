@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # ttspro - update an existing install to the latest version on GitHub.
-#   ./actualizar.sh            pull, sync the Python env, rebuild models only if
-#                              the model pipeline changed, refresh the browser side
-#   ./actualizar.sh --modelos  force the model rebuild
+#   ./actualizar.sh   pull, sync the Python env, refresh the browser side
 #
-# The expensive step is the model rebuild, so it only runs when the commits that
-# came in touched what produces models/: the ports, the exporter, the model code
-# or the contract. `git diff --name-only` between the old and the new HEAD decides,
-# not a guess.
+# There is no model rebuild any more (ADR 0012): the weights are DOWNLOADED at a
+# pinned revision, so a code change cannot leave them stale. The only thing that
+# can make them wrong is the pinned revision itself changing, and that is one
+# `git diff` on one file.
 set -euo pipefail
 
 cd "$(dirname "$(readlink -f "$0")")"
@@ -43,27 +41,18 @@ fi
 
 echo
 echo "== Python environment (uv sync) =="
-uv sync --extra dev --extra export
+uv sync --extra dev --extra export --extra voz
 
 # ---------------------------------------------------------------- models
-reconstruir=0
-if [ "${1:-}" = "--modelos" ]; then
-  reconstruir=1
-  echo "   models: rebuild forced"
-elif [ ! -f models/tts.onnx ] || [ ! -f models/conversor.onnx ] || [ ! -f models/voz.onnx ]; then
-  reconstruir=1
-  echo "   models: some graphs are missing"
-elif [ "$antes" != "$despues" ] && git diff --name-only "$antes" "$despues" -- \
-      src/ttspro/export src/ttspro/model models/contrato.json pyproject.toml | grep -q .; then
-  reconstruir=1
-  echo "   models: the model pipeline changed in this update:"
-  git diff --name-only "$antes" "$despues" -- src/ttspro/export src/ttspro/model models/contrato.json pyproject.toml | sed 's/^/     /'
-fi
-
-if [ "$reconstruir" = 1 ]; then
-  echo
-  echo "== Model weights: rebuild from public weights (about a minute on CPU) =="
-  uv run python -m ttspro.export.modelos --sin-encoder
+# Ya no se reconstruye nada: desde ADR 0012 los pesos se DESCARGAN con la revision
+# fijada, asi que no pueden quedarse viejos por un cambio de codigo. Lo unico que
+# puede pasar es que cambie la revision fijada, y entonces hay que volver a bajarlos.
+if [ ! -f models/supertonic/onnx/vector_estimator.onnx ]; then
+  echo "   models: Supertonic is not downloaded; the page pulls it from Hugging Face on demand"
+  echo "           (or run: uv run python -m ttspro.supertonic.descargar)"
+elif [ "$antes" != "$despues" ] && git diff --name-only "$antes" "$despues" -- src/ttspro/supertonic/descargar.py | grep -q .; then
+  echo "   models: the pinned revision may have changed in this update; re-downloading"
+  uv run python -m ttspro.supertonic.descargar
 else
   echo "   models: unchanged, kept"
 fi

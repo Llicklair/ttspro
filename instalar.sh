@@ -68,7 +68,7 @@ instalar_espeak() {
   elif tiene brew; then
     brew install espeak-ng
   else
-    echo "   espeak-ng: no known package manager; install it yourself (only the Python tests need it)"
+    echo "   espeak-ng: no known package manager; install it yourself (only the OLD frontend tests need it)"
     return 1
   fi
 }
@@ -88,7 +88,7 @@ if tiene espeak-ng; then
   echo "   (the tests hold Python and the browser WASM to identical output, which needs 1.52;"
   echo "    an older distro build still runs, but the parity test may report differences)"
 else
-  instalar_espeak || echo "   espeak-ng: skipped; the demo still works, the Python tests will not"
+  instalar_espeak || echo "   espeak-ng: skipped. The engine has no phonemizer since ADR 0012, so this only affects tests/test_frontend_paridad.py"
 fi
 
 tiene uv   || { echo "uv is not on PATH: open a new shell and run this script again"; exit 1; }
@@ -99,15 +99,25 @@ echo
 echo "== Python environment (uv sync) =="
 echo "   (torch comes from the PyTorch cu126 index pinned in pyproject: it is a large download"
 echo "    and runs on CPU too, no GPU needed)"
-uv sync --extra dev --extra export
+uv sync --extra dev --extra export --extra voz
 
 echo
-echo "== Model weights: download public weights and export the ONNX graphs =="
-echo "   (Piper base voice + OpenVoice v2 converter, from Hugging Face; about a minute on CPU)"
-if [ -f models/tts.onnx ] && [ -f models/conversor.onnx ] && [ -f models/voz.onnx ]; then
-  echo "   models/*.onnx already present, skipping. Delete them to rebuild."
+echo "== Model weights =="
+echo "   Nothing is required here any more (ADR 0012). The page loads its engine by itself:"
+echo "   Pocket TTS (177 MB) comes straight from Hugging Face into the browser cache, and it is"
+echo "   the one that can clone a voice from a recording."
+echo
+echo "   Supertonic is the other engine — it reads a touch better, at 44.1 kHz and in 31"
+echo "   languages, but it cannot clone. It is 398 MB and only worth keeping locally if you"
+echo "   are going to use it: the page can also pull it from Hugging Face on demand."
+if [ -f models/supertonic/onnx/vector_estimator.onnx ]; then
+  echo "   models/supertonic is already here, skipping."
 else
-  uv run python -m ttspro.export.modelos --sin-encoder
+  read -r -p "   Download Supertonic now (398 MB)? [s/N] " quiere
+  case "$quiere" in
+    s|S|y|Y) uv run python -m ttspro.supertonic.descargar ;;
+    *) echo "   skipped; the page pulls it from Hugging Face when you pick that engine." ;;
+  esac
 fi
 
 # ---------------------------------------------------------------- browser side
@@ -127,7 +137,10 @@ echo "== Browser runtime (npm) =="
 echo
 echo "== Done =="
 echo "   demo:   cd web && npm run dev     then open http://localhost:5173"
-echo "   tests:  uv run pytest tests -q"
+echo "           the page loads its engine on its own; drop a recording on it to clone a voice"
+echo "   tests:  uv run pytest tests -q     and, in web/, npm test"
+echo "   measuring: add --extra eval (Whisper, jiwer) before running tests/terminado or"
+echo "              anything that computes WER; uv sync prunes it if you leave it out"
 echo
 
 if [ "${1:-}" = "--sin-demo" ]; then exit 0; fi

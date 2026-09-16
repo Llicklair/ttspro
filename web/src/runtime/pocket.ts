@@ -113,10 +113,13 @@ export class Pocket {
     // 2 s a 0,527 con 20. Es la palanca de calidad mas grande que hay aqui.
     const maximo = 20 * this.sampleRate;
     const recortada = onda.length > maximo ? onda.slice(0, maximo) : onda;
-    // Nivelar la referencia antes de encodearla. Una grabación de móvil llega a
-    // −30 dB y otra saturando, y el encoder no las ve igual; los objetivos son
-    // los del propio paquete (−18 dB RMS, techo −1 dB).
-    await this.motor.clone(nivelar(recortada));
+    // La referencia va **tal cual**, sin nivelar. Nivelarla parecia buena idea
+    // —una grabacion de movil llega floja y otra saturando— y resulto ser lo que
+    // metia el siseo: medido el 2026-09-16 con una referencia floja y con ruido,
+    // el +4x del nivelado cuesta **11,7 dB de senal/ruido** en la salida y sube
+    // su suelo 24 dB. El encoder es sensible al nivel absoluto y con la
+    // referencia amplificada se queda el ruido como parte de la voz.
+    await this.motor.clone(recortada);
     // `clone` deja la voz dentro del worker y `speak` la toma como la actual;
     // se guarda el nombre para poder volver a ella desde la lista.
     this.clonadas.set(nombre, new Float32Array(0));
@@ -152,8 +155,9 @@ export class Pocket {
       cruda.set(t, pos);
       pos += t.length;
     }
-    // Y nivelar también lo que sale: dos voces distintas salen a volúmenes muy
-    // distintos, y en el chat eso se nota más que la calidad.
+    // La salida si se nivela: es una ganancia constante, asi que **no puede**
+    // cambiar la relacion senal/ruido, solo iguala el volumen entre voces, que
+    // en el chat se nota mas que la calidad.
     return { onda: nivelar(cruda), sampleRate: this.sampleRate, ms: performance.now() - t0, voz };
   }
 

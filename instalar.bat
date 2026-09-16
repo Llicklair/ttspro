@@ -41,17 +41,24 @@ if errorlevel 1 (
 rem ---------------------------------------------------------------- python side
 echo.
 echo == Python environment (uv sync) ==
-call uv sync --extra dev --extra export
+call uv sync --extra dev --extra export --extra voz
 if errorlevel 1 goto :fallo
 
 echo.
-echo == Model weights: download public weights and export the ONNX graphs ==
-echo    (Piper base voice + OpenVoice v2 converter, from Hugging Face; a few minutes on CPU)
-if exist "models\tts.onnx" if exist "models\conversor.onnx" if exist "models\voz.onnx" (
-  echo    models\*.onnx already present, skipping. Delete them to rebuild.
+echo == Model weights ==
+echo    Nothing is required here any more (ADR 0012). The page loads its engine by itself:
+echo    Pocket TTS (177 MB) comes from Hugging Face into the browser cache, and it is the one
+echo    that can clone a voice from a recording.
+echo.
+echo    Supertonic is the other engine: reads a touch better, 44.1 kHz and 31 languages, but
+echo    cannot clone. 398 MB, and only worth keeping locally if you are going to use it.
+if exist "models\supertonic\onnx\vector_estimator.onnx" (
+  echo    models\supertonic is already here, skipping.
   goto :web
 )
-call uv run python -m ttspro.export.modelos --sin-encoder
+choice /c YN /n /m "   Download Supertonic now (398 MB)? [Y/N] "
+if errorlevel 2 goto :web
+call uv run python -m ttspro.supertonic.descargar
 if errorlevel 1 goto :fallo
 
 :web
@@ -80,6 +87,7 @@ echo.
 echo == Done ==
 echo    demo:   cd web  then  npm run dev     and open http://localhost:5173
 echo    tests:  uv run pytest tests -q
+echo    measuring: add --extra eval (Whisper, jiwer); uv sync prunes it if you leave it out
 echo.
 
 if /i "%~1"=="--sin-demo" exit /b 0
@@ -89,6 +97,18 @@ start "" http://localhost:5173
 cd web
 call npm run dev
 exit /b 0
+
+exit /b 0
+
+rem ---------------------------------------------------------------- when something fails
+rem Double-clicked, the window closes the instant the script exits and the reason
+rem is never seen. %cmdcmdline% carries "/c" only in that case: pause there, and
+rem not when run from a console that stays open anyway.
+:fallo
+echo.
+echo Algo ha fallado: el motivo esta en las lineas de arriba.
+echo %cmdcmdline% | find /i "/c" >nul && pause
+exit /b 1
 
 rem ---------------------------------------------------------------- helpers
 :necesita

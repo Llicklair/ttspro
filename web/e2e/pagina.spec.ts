@@ -109,7 +109,10 @@ test("sin modelos locales cae sola en Hugging Face", async ({ page }) => {
   // Y sigue: las diez voces se pintan desde el contrato mínimo, porque en
   // Hugging Face no hay contrato.json.
   await expect(page.locator(".voz")).toHaveCount(10, { timeout: 120_000 });
-  expect(await page.locator("#registro").innerText()).toContain("sin contrato.json");
+  // Y lo dice ANTES de pedirlo: el archivo de upstream no trae ni contrato.json ni
+  // el indice de voces, asi que preguntarselos era garantizar dos 404 en rojo en la
+  // consola de quien acaba de instalar.
+  expect(await page.locator("#registro").innerText()).toContain("no trae contrato.json");
 });
 
 test("elegir una voz la dice al momento, y dos voces suenan distinto", async ({ page }) => {

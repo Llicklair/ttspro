@@ -1956,6 +1956,46 @@ es seseo del ASR y no del sintetizador. Con una frase de diez palabras cada pala
 eso no es un criterio, es una moneda al aire. Con cuatro frases el medio baja a 0,048 y los dos
 fallos que quedan siguen siendo del ASR («sarpó», y «9» donde decia «nueve»).
 
+## 2026-09-16 · La instalacion en una maquina limpia — FUNCIONA, CON TRES ARREGLOS
+
+**Montaje.** Marcos: *«queria comprobar que la instalacion estaba correcta y que carga todo
+correctamente en una maquina limpia»*. Se clona el repo **de GitHub** en un directorio nuevo (eso
+comprueba ademas que todo lo necesario esta commiteado) y se corre el instalador alli.
+
+**Resultado: funciona.**
+
+| | |
+|---|---|
+| `instalar.bat --sin-demo` desde cero | OK — uv sync, npm ci, preparar |
+| `uv run pytest tests -q` en el clon | **108 pasan, 27 se saltan**, y las 27 dicen que falta y como arreglarlo |
+| `arrancar.bat` sin modelos | OK — levanta Vite y sirve la pagina |
+| La pagina **sin nada descargado** | OK — tira de Hugging Face sola, pinta las 10 voces, clona de un wav en 27 s y habla |
+
+Ese ultimo es el que importa: es la promesa de la pagina —abrirla y que hable sin instalar nada— y
+hasta hoy no se habia ejecutado nunca de verdad, solo con los modelos ya en disco o con la ruta
+simulada.
+
+**Tres cosas que salieron, y ninguna se ve con los modelos ya puestos.**
+
+1. **Los instaladores morian o mentian sin nadie delante.** `choice` en Windows, con stdin
+   redirigido, escribe en stderr un `ERROR: el archivo esta vacio...` y devuelve 255; el
+   `if errorlevel 2` lo tomaba por un «No» de carambola. En Linux es peor: `read` devuelve 1 al
+   final de la entrada y con `set -euo pipefail` eso **aborta el script entero**, asi que
+   `./instalar.sh < /dev/null` —un Dockerfile, CI— moria justo despues del `uv sync` y antes de npm,
+   sin decir por que. Los dos llevan ahora 20 s de espera y caen del lado seguro.
+2. **El texto decia cosas que ya no son verdad**: «el otro motor», «cuando elijas ese motor», Pocket
+   descargandose ahi. Resto del selector que ya no existe.
+3. **La consola de una instalacion recien hecha salia con 404 en rojo.** Tres sondas, y **dos eran
+   evitables**: el archivo de upstream no tiene `contrato.json` ni `voice_styles/indice.json` —los
+   escribe `npm run preparar` en la copia local—, asi que pedirselos era garantizar dos 404 en cada
+   arranque de quien no ha descargado nada. Se saltan comparando la URL exacta, no «parece de
+   Hugging Face»: quien apunte a un espejo suyo que si los tenga los sigue leyendo. El tercero **si
+   hace falta** —es como la pagina averigua si hay copia local— y lo tolera `pocket.spec` por su URL,
+   con el motivo escrito, en vez de dejar de mirar los errores de consola.
+
+Funcionaba en los tres casos, porque todo tenia respaldo. Pero una instalacion nueva que escupe
+errores rojos hace dudar de si algo va mal, y eso cuesta tanto como que fuera mal de verdad.
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo numero cambia una decision escrita. Cuando se midan, cada una

@@ -35,12 +35,15 @@ rem which is the no-install path. Keeping them locally only makes the page fast,
 rem so a missing models\supertonic is a question, never a failure.
 if exist "models\supertonic\onnx\vector_estimator.onnx" goto :listo
 echo.
-echo == Supertonic 3 is not downloaded yet (398 MB) ==
-echo    The page works without it: press "descargar de Hugging Face" there and
-echo    the browser fetches the graphs itself, no install needed.
+echo == The engine is not downloaded yet (398 MB) ==
+echo    The page works without it: it pulls the graphs from Hugging Face by itself,
+echo    and the button "usar Hugging Face" forces that on purpose. No install needed.
 echo    Keeping a local copy is faster on every reload.
 echo.
-choice /c YN /n /m "Download Supertonic 3 now? [Y/N] "
+rem `/t 20 /d N` y `2>nul` por lo mismo que en instalar.bat: sin una consola
+rem delante, `choice` a secas escribe un ERROR que no viene a cuento y se queda
+rem esperando a alguien que no esta.
+choice /c YN /n /t 20 /d N /m "Download it now? [Y/N, N en 20s] " 2>nul
 if errorlevel 2 goto :listo
 call uv run python -m ttspro.supertonic.descargar
 if errorlevel 1 goto :fallo

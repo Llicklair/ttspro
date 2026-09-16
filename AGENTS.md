@@ -5,8 +5,10 @@ Codex, Cursor, Copilot, Gemini CLI y Aider. La ley está en [ARCHITECTURE.md](AR
 que no entra en [SCOPE.md](SCOPE.md), el porqué en [docs/adr/](docs/adr/) y los números en
 [docs/evidencia.md](docs/evidencia.md).
 
-En una frase: TTS multilingüe no autorregresivo con clonación de voz a partir de un audio, entrenado
-en PyTorch, exportado a ONNX y ejecutado en el navegador con ONNX Runtime Web.
+En una frase: TTS multilingüe con clonación de voz a partir de un audio, **en el navegador** con
+ONNX Runtime Web. Desde el [ADR 0012](docs/adr/0012-supertonic-como-motor.md) aquí no se entrena ni
+se exporta nada: los pesos se descargan ya en ONNX. Leen las voces predeterminadas (Supertonic 3) y
+clona un segundo modelo (Pocket TTS) que solo hace eso.
 
 ## Comandos
 
@@ -17,12 +19,10 @@ uv sync --extra dev --extra export --extra voz     # torch cu126 viene del índi
 uv sync ... --extra eval          # AÑADE esto para medir: sin él `uv sync` PODA Whisper y jiwer
 winget install eSpeak-NG.eSpeak-NG                # SOLO para tests/test_frontend_paridad.py; el motor no tiene fonemizador (ADR 0012)
 uv run pytest tests -q              # suite rápida: suelo, frontend y paridad Python/JS (necesita node)
-uv run pytest tests/terminado -q    # criterio de terminado del MVP — hoy FALLA, no hay modelo
+uv run pytest tests/terminado -q    # criterio de terminado del MVP — hoy FALLA: mide la cadena que retiro el ADR 0012
 cd web && npm ci && npm test        # runtime JS; npm run typecheck y npm run lint tambien
 gb who --html mapa.html             # el mapa navegable del repo (derivado, no se commitea)
 
-# los modelos, sin corpus y sin entrenar: descarga los pesos publicos y exporta los 4 grafos
-uv run python -m ttspro.export.modelos            # ADR 0009; es el camino de quien clona el repo
 ./instalar.sh | instalar.bat                      # arranque completo; ./actualizar.sh trae la ultima version y reconstruye modelos solo si hace falta
 arrancar.bat [--lib]                             # Windows: levanta la pagina (o la libreria con su ejemplo) y abre el navegador
 
@@ -30,14 +30,17 @@ arrancar.bat [--lib]                             # Windows: levanta la pagina (o
 uv run python -m ttspro.supertonic.descargar          # 398 MB en models/supertonic/ + contrato.json
 uv run pytest tests/test_supertonic_paridad.py -q     # regla 3 del frontend Unicode, sin espeak
 
-# el voice builder, que Supertone no publico y hay que reconstruir (ADR 0012, decision 6)
-uv run python -m ttspro.supertonic.inversor --audio voz.wav --reconstruida recon.wav
-                                                      # invierte el vocoder: audio -> latente (GPU)
-uv run python -m ttspro.supertonic.puente muestrear --n 4000   # pares (estilo, embedding, latente)
-uv run python -m ttspro.supertonic.puente entrenar --desde ambos  # ridge + PCA, segundos
-uv run python -m ttspro.supertonic.puente clonar --referencia voz.wav --nombre marcos
+# construir una voz SIN grabacion: mezcla de las diez predeterminadas
 uv run python -m ttspro.supertonic.constructor --referencia voz.wav --nombre marcos
-                                                      # la via barata: mezclar las diez voces (0,227)
+uv run python -m ttspro.supertonic.pack --n 8         # N voces mutuamente distintas de una tirada
+                                                      # clonar DESDE una grabacion se hace en la pagina,
+                                                      # no aqui: lo hace Pocket TTS en el navegador
+
+# los seis intentos de reconstruir el voice builder de Supertonic. NO funcionan, y estan
+# aqui porque son el codigo detras de las medidas (ADR 0012, enmienda; evidencia 2026-09-16)
+uv run python -m ttspro.supertonic.inversor --audio voz.wav --reconstruida recon.wav
+uv run python -m ttspro.supertonic.puente muestrear --n 4000
+uv run python -m ttspro.supertonic.puente entrenar --desde ambos
 
 # el ciclo del modelo pieza a pieza (cadena ANTERIOR al ADR 0012; ver data/README.md)
 uv run python -m ttspro.export.speaker_encoder                 # models/speaker_encoder.onnx (+ .fp16)
@@ -62,13 +65,11 @@ uv run python -m ttspro.train.entrenar --cache cache/openslr_es cache/vctk   --s
 # el demo en el navegador (copia modelos y espeak a web/public y sirve con COOP/COEP)
 # PowerShell 5.1 no acepta `&&`: dos lineas, `cd web` y luego `npm run dev`
 cd web && npm run dev                # http://localhost:5173
-cd web && npx playwright test        # criterio 5: Chromium headless, wasm, fp16 (TTSPRO_PRECISION="" para fp32)
-cd web && npx playwright test -g "modo chat"   # ADR 0010: veinte mensajes por la cola, escribe test-results/chat.json
-cd web && npx playwright test -g "fuente externa"   # otra aplicacion (streex/Rails) alimenta la cola por SSE desde otro origen
+cd web && npx playwright test e2e/pagina.spec.ts   # la pagina entera: arranque, voces, importar, ajustes
+cd web && npx playwright test e2e/pocket.spec.ts   # clonar desde un wav soltado y hablar con esa voz (baja 216 MB la 1a vez)
 cd web && npm run build:lib && npm run servir   # la libreria (dist/lib/ttspro.js) y la pagina ejemplo/ en http://127.0.0.1:8080
-cd web && npx playwright test -g "libreria"   # import ttspro.js, clonar desde fichero, predict de texto y de stream (necesita build:lib)
-cd web && npx playwright test -g "paquetes"   # voz base descargada bajo demanda, en la pagina y en la libreria (necesita paquetes/ y build:lib)
-cd web && TTSPRO_VOCES=https://huggingface.co/Llicklair/ttspro-voces/resolve/main/ npx playwright test -g "host real"   # contra Hugging Face de verdad (red)
+cd web && npx playwright test e2e/libreria.spec.ts   # el BUNDLE construido, no las fuentes (necesita build:lib)
+cd web && npx playwright test -g "CDN"   # que espeak, que ya no se empaqueta, cargue estando aislados
 ```
 
 ## Gates

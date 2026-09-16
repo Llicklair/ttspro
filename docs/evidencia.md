@@ -1844,6 +1844,14 @@ los tests no se toca, que ahi no se distribuye a nadie.
 | Pegamento de Emscripten | 68 384 B | **0** |
 | Sustituto, codigo propio MIT | — | 391 B |
 
+**Y el riesgo que abria este cambio, cerrado el mismo dia.** Sacar espeak del build lo deja
+detras de un `import()` a otro origen, y la pagina esta **aislada entre origenes** (COOP/COEP
+`require-corp`, ADR 0005), que es justo la politica que bloquea recursos ajenos. Que un import de
+modulo vaya siempre en modo CORS y por tanto deba pasar es teoria, no medida: si no pasara, habria
+que volver a empaquetar los 18,5 MB y asumir la GPL. Medido en Chromium con la pagina real
+(`crossOriginIsolated === true`): **carga**, y el modulo trae su factoria. Fijado en
+`pagina.spec.ts`.
+
 Verificado ejecutando el **bundle construido**: `libreria.spec.ts` carga `dist/lib/ttspro.js`,
 elige voz, importa un `.json`, habla y consume un stream. Y se anade un test que falla si un
 fichero de espeak-ng reaparece en `dist/`, porque esto vuelve solo en cuanto alguien quite el alias
@@ -1851,37 +1859,27 @@ o entre otra dependencia que tire de el.
 
 ## Mediciones pendientes que deciden algo
 
-No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una
+No son tareas: son las preguntas cuyo numero cambia una decision escrita. Cuando se midan, cada una
 sube arriba como entrada con fecha.
 
-- **Calibración en la GTX 1070** (ADR 0011): pulsar «calibrar» en la página con Chrome real y anotar
-  tts y conversor en webgpu fp32 frente a wasm. Es el número que dice si la voz clonada vale para
-  directo; en headless no hay WebGPU y no se puede medir aquí.
-- **Modo chat con conversor en WebGPU** (ADR 0010): la política «una voz por usuario» pasa cada
-  mensaje por el conversor; en wasm son ~2,9 s y la cola descarta. Medir velocidad (audio/síntesis)
-  en la GTX 1070 con WebGPU fp32: si supera ×1 con margen, la voz por usuario es viable en directo.
-- **Speaker encoder con voz real** (ADR 0002): la paridad del grafo compuesto se midió con ruido.
-  Repetir con `eval/` y medir SECS entre locutores distintos y el mismo locutor, que es lo que
-  el modelo va a usar. También la latencia en `wasm` real, no en ORT CPU.
-- **Ops en WebGPU** (ADR 0005): la lista `ttspro.export.ops_ort_web` es de la documentación, no
-  del runtime: cargar `speaker_encoder.fp16.onnx` en Chrome con el EP `webgpu` y ver en el
-  perfilador de ORT qué nodos cayeron a CPU. Cero es el objetivo.
-- **Spike XTTS-v2 en el navegador** (pregunta de Marcos, 2026-09-05): exportar solo el GPT con caché
-  KV a int4 (`MatMulNBits`) y medir tokens/segundo en la 1070 con WebGPU. Umbral para seguir:
-  ~10 tokens/s y calidad int4 audible; por debajo, ADR que lo cierre. Se hace tras el primer
-  modelo afinado, con la GPU libre.
-- **XTTS-v2 como listón** (ADR 0006): WER y SECS de XTTS sobre `eval/` en español e inglés, para
-  saber a qué distancia queda el modelo propio; y si el audio sintético castellano de XTTS mejora
-  el afinado (medir con y sin).
-- **Calidad con datos reales** (SCOPE, criterio 4): el sintetizador no ha visto un dato. Primer
-  corpus (data/README.md), primeras muestras en `runs/<x>/muestras/`, primer WER y SECS. Ese
-  número recalibra los umbrales provisionales del criterio de terminado.
-- **espeak-ng WASM en navegador real** (ADR 0004): los 124 ms por instanciación se midieron en
-  node; en Chrome con el wasm cacheado puede ser distinto. Y si el troceado por frase basta para
-  que no se note, o hace falta el build recortado a es+en.
-- **Umbrales del criterio de terminado** (SCOPE): WER y SECS del primer modelo que hable, para
-  recalibrar el 10 % y el 0,70 provisionales contra el baseline de YourTTS.
-- **Descarga real** (regla 8): bytes de los dos `.onnx` + wasm de ORT + espeak-ng, medidos en el
-  demo servido, no sumados a mano.
-- **F5-TTS en WebGPU** (ADR 0001): RTF de una alternativa iterativa. Si baja de 1 con la misma
-  calidad, la regla 1 se reabre.
+Esta lista se vacio y se rehizo el 2026-09-16: las doce preguntas que tenia eran todas de la cadena
+retirada por el [ADR 0012](adr/0012-supertonic-como-motor.md) —el conversor de OpenVoice, la voz
+base de Piper, el listen de XTTS-v2, el presupuesto de descarga de la regla 8, el wasm de espeak—,
+y varias ya estaban contestadas sin que nadie las tachara. Una lista de preguntas muertas no es un
+archivo, es ruido que tapa las vivas.
+
+- **Calibracion en la GTX 1070** (ADR 0011): pulsar «calibrar» en la pagina con Chrome real y
+  anotar el RTF del motor en `webgpu` frente a `wasm`. En CPU es 0,46 con 8 pasos; el
+  `vector_estimator` son 256 MB y corre N veces por frase, asi que es donde la GPU tendria que
+  notarse. Decide dos cosas escritas: si el modo chat aguanta en directo (ADR 0010) y si los 8
+  pasos por defecto se pueden subir. En headless no hay WebGPU y no se puede medir aqui.
+- **Techo de similitud con otro encoder** (ADR 0012, enmienda): 0,413 es el techo **de este**
+  encoder publicado, no de la idea. Si aparece otro con encoder abierto —o Kyutai publica uno
+  mejor—, medirlo con el mismo arnes de 14 locutores. Es lo unico que puede poner en verde el
+  criterio 4 sin entrenar nada.
+- **Los otros 30 idiomas** (MODEL_CARD): el motor dice 31 y aqui solo esta medido el espanol. Pasar
+  el ingles por el mismo arnes (WER de Whisper sobre 10 frases) decide si «se ofrecen sin probar»
+  sigue siendo lo honesto o si hay que recortar la lista.
+- **Criterio 5 con la cadena nueva** (SCOPE): la latencia en el navegador esta medida a mano
+  (RTF 0,32-1,30 en los e2e) pero `tests/terminado` sigue midiendo la cadena retirada. Hace falta
+  un e2e que escriba lo medido y un criterio reescrito que lo lea.

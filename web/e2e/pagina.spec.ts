@@ -185,3 +185,35 @@ test("añadir una voz: un .json de estilo entra por la misma puerta que un audio
   // Soltar un audio aqui bajaria los 216 MB del motor que clona; ese camino se
   // mide entero en `pocket.spec.ts`, que es donde se paga esa descarga una vez.
 });
+
+/**
+ * El camino que abrio sacar espeak-ng del build: al no empaquetarlo, el hebreo
+ * mezclado con letras latinas pasa a cargarlo de jsDelivr. Y la pagina esta
+ * **aislada entre origenes** (COOP/COEP `require-corp`, ADR 0005), que es
+ * exactamente la politica que bloquea recursos de otro origen.
+ *
+ * Un `import()` de modulo va siempre en modo CORS, asi que con
+ * `access-control-allow-origin` del CDN deberia pasar — pero «deberia» no es una
+ * medida, y si no pasara habria que volver a empaquetar los 18,5 MB y asumir la
+ * GPL. Asi que se comprueba. El espanol no toca este camino: esto es por los
+ * otros.
+ */
+test("el espeak que ya no se empaqueta se puede cargar del CDN estando aislados", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto("/");
+  expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
+
+  const salida = await page.evaluate(async () => {
+    const url = "https://cdn.jsdelivr.net/npm/espeak-ng@1.0.2/dist/espeak-ng.js";
+    try {
+      const m = await import(/* @vite-ignore */ url);
+      return { ok: typeof (m.default ?? m) === "function" };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  });
+  expect(salida.error ?? "", "el import externo no pasa el aislamiento").toBe("");
+  expect(salida.ok).toBe(true);
+});

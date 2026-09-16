@@ -269,9 +269,10 @@ discovered.
 
 The code is **MIT** ([LICENSE](LICENSE)). The two models are not the same: Supertonic's weights are
 **OpenRAIL-M**, which carries use restrictions and is not permissive, and Pocket TTS is
-**CC BY 4.0**. The cloning runtime pulls in espeak-ng, which is **GPL-3.0-or-later**: Spanish never
-invokes it, but a deployed build of `web/` distributes the wasm and carries the obligation.
-[THIRD_PARTY.md](THIRD_PARTY.md) lists every component with its terms and what the options are, and
+**CC BY 4.0**. The cloning runtime pulls in espeak-ng, which is **GPL-3.0-or-later**, so it is
+deliberately **not bundled** — a published build loads it from a CDN on the one path that needs it,
+which Spanish never takes, and therefore distributes nothing under the GPL.
+[THIRD_PARTY.md](THIRD_PARTY.md) lists every component with its terms, and
 [ADR 0009](docs/adr/0009-publicacion-en-github.md) records why it is set up this way.
 
 Decision documents (`SCOPE.md`, `ARCHITECTURE.md`, `AGENTS.md`, ADRs, evidence) are in Spanish by

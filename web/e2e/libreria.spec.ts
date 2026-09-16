@@ -10,7 +10,7 @@
  * probaban paquetes de voz de Piper, el conversor y `tau`, que ya no existen.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
@@ -18,9 +18,34 @@ import { expect, test } from "@playwright/test";
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const BUNDLE = resolve(AQUI, "../dist/lib/ttspro.js");
 const MODELOS = resolve(AQUI, "../public/models/supertonic/onnx/vector_estimator.onnx");
+const DIST = resolve(AQUI, "../dist/lib");
 
 // @ts-expect-error JS plano y sin declaración: es el mismo servidor que `npm run servir`
 import { servir } from "../scripts/servir.mjs";
+
+/**
+ * Lo que el build **reparte**, que es donde vive la obligacion de la GPL: no en
+ * ejecutar espeak-ng, en entregarselo a quien abre la pagina. El paquete llega
+ * por `pocket-tts-onnx`, solo lo usa el hebreo mezclado con letras latinas —una
+ * rama que el modelo espanol ni siquiera tiene— y aun asi el build emitia 18,5 MB
+ * de wasm y 68 KB de pegamento GPL. Ahora se pide al CDN cuando hace falta.
+ *
+ * Esto lo fija como test y no como comentario porque vuelve solo: basta con que
+ * alguien quite el alias de `vite.config.ts`, o con que otra dependencia tire de
+ * espeak, para que el fichero reaparezca sin que nadie lo note.
+ */
+test("el build no reparte espeak-ng, que es GPL-3.0", () => {
+  test.skip(!existsSync(BUNDLE), "corre `npm run build:lib` primero");
+  const ficheros: string[] = [];
+  const mirar = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) mirar(resolve(dir, e.name));
+      else ficheros.push(e.name);
+    }
+  };
+  mirar(DIST);
+  expect(ficheros.filter((f) => /espeak-ng/.test(f))).toEqual([]);
+});
 
 test("librería: elegir voz, importar un .json, predict de texto y de stream", async ({ page }) => {
   test.skip(!existsSync(BUNDLE), "corre `npm run build:lib` primero");

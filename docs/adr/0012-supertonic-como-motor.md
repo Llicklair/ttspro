@@ -188,11 +188,19 @@ no pasa de 4 pasos y se le recortan, en vez de mandarle un valor que no admite.
 
 **Lo que esto cuesta, y hay que decirlo entero.**
 
-1. **Vuelve la obligación GPL-3.0 que la decisión 4 daba por ida.** `pocket-tts-onnx` depende de
-   `espeak-ng`: 18,5 MB de wasm, GPL-3.0-or-later. El español **nunca lo invoca** —su bundle no
-   pasa por el fonemizador—, pero un build desplegado de `web/` lo **distribuye**, y distribuir es
-   lo que activa la licencia. Las opciones están en [THIRD_PARTY.md](../../THIRD_PARTY.md) y la
-   decisión está **abierta**.
+1. **La obligación GPL-3.0 que la decisión 4 daba por ida volvió, y se ha vuelto a cerrar.**
+   `pocket-tts-onnx` depende de `espeak-ng`, GPL-3.0-or-later, y Vite emitía sus 18,5 MB de wasm
+   más 68 KB de pegamento de Emscripten. El español **nunca lo invoca** —su modelo ni siquiera trae
+   el adaptador de fonemas que activaría esa rama—, pero un build desplegado lo **distribuía**, y
+   distribuir es lo que activa la licencia: aviso, oferta del fuente de esa versión exacta, y la
+   pregunta sin resolver de si la aplicación y espeak cuentan como una sola obra combinada.
+
+   Decisión de Marcos (2026-09-16), al saber que el camino no se usa: **no empaquetarlo**. En los
+   builds de producción el paquete se sustituye por `web/src/runtime/espeak-remoto.ts`, que lo pide
+   a jsDelivr si alguna vez hace falta. No cambia nada funcionalmente —`pocket-tts-onnx` ya se
+   bajaba los bytes de ese mismo CDN y los pasaba como `wasmBinary`, así que la copia emitida no la
+   pedía nadie— y quien distribuye espeak-ng pasa a ser el CDN, que ya lo hacía. Fijado como test
+   en `web/e2e/libreria.spec.ts`, porque esto vuelve solo: basta con que alguien quite el alias.
 2. **La similitud sigue por debajo del criterio.** 0,413 de media sobre 14 locutores, contra un
    objetivo de 0,55, y el techo del propio encoder de medida es 0,760. No es un parámetro mal
    puesto: se barrió temperatura y pasos, y no se mueve; no sigue a la calidad de la referencia

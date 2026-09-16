@@ -34,18 +34,29 @@ the code's licence.
 |---|---|---|
 | [pocket-tts-onnx](https://github.com/thewh1teagle/pocket-tts-onnx) | CC BY 4.0 | the browser runtime for the engine that **can** clone |
 | [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) weights (Kyutai) | CC BY 4.0 | 177 MB, fetched at runtime and cached in the browser |
-| [espeak-ng](https://github.com/espeak-ng/espeak-ng) | **GPL-3.0-or-later** | ADR 0012 removed it as the phonemizer, but `pocket-tts-onnx` depends on it and a build **distributes** its 18.5 MB wasm — see below |
+| [espeak-ng](https://github.com/espeak-ng/espeak-ng) | **GPL-3.0-or-later** | a dependency of `pocket-tts-onnx`, **not bundled**: a published build fetches it from jsDelivr, so nothing GPL is distributed — see below |
 | [supertonic-py](https://github.com/supertone-oss-archive/supertonic-py) | MIT | the reference implementation the engine is ported from (archived 2026-09-09) |
 | [onnx2torch](https://github.com/ENOT-AutoDL/onnx2torch) | Apache-2.0 | voice builder only, never in the synthesis path (rule 7) |
 | [ONNX Runtime Web](https://onnxruntime.ai/) | MIT | the browser runtime |
 | PyTorch, ONNX, numpy, soundfile | BSD/MIT/Apache-2.0 | export and measurement only |
 
-**The GPL problem came back, by a side door.** ADR 0012 removed espeak-ng as the phonemizer and
-with it the GPL obligation. Then the Pocket TTS engine arrived, and its browser runtime depends on
-espeak-ng — only for Latin words inside Hebrew, which Spanish never triggers, but Vite bundles the
-18.5 MB wasm anyway and **a deployed build distributes it**. The obligation attaches to
-distribution, not to execution, so it is back. Ways out, in order of honesty: exclude the wasm from
-the build and let the Hebrew path fail loudly, or carry the GPL notice. Not decided yet.
+**The GPL problem came back by a side door, and is closed again.** ADR 0012 removed espeak-ng as
+the phonemizer and with it the GPL obligation. Then the Pocket TTS engine arrived, and its browser
+runtime depends on espeak-ng — only for Latin words inside Hebrew, a branch the Spanish model does
+not even carry the adapter for — but Vite emitted the 18.5 MB wasm and 68 KB of Emscripten glue
+anyway, and **a deployed build distributes them**. The obligation attaches to distribution, not to
+execution, so shipping a binary nobody downloads would still have carried it: the GPLv3 notice, an
+offer of the corresponding source, and the unsettled question of whether the bundle counts as a
+single combined work with the application.
+
+So the package is **not bundled**. In production builds it is aliased to
+`web/src/runtime/espeak-remoto.ts`, which loads it from jsDelivr if a line ever mixes Hebrew with
+Latin script. Nothing changes functionally — `pocket-tts-onnx` already fetched espeak's wasm bytes
+from that same CDN and passed them in as `wasmBinary`, so the emitted copy was never requested —
+and the party distributing espeak-ng is the CDN, which already was.
+`web/e2e/libreria.spec.ts` asserts that no `espeak-ng` file appears in the build, because this is
+the kind of thing that comes back silently: one removed alias, or one new dependency that pulls in
+espeak, and the file is there again.
 
 **The rest of the old GPL story, for the record.** Until 2026-09-15 a build of `web/`
 distributed the espeak-ng WASM module, and anyone redistributing the built site took on GPLv3

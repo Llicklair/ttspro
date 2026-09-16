@@ -9,14 +9,17 @@
 // TS entry emits the wasm as files (assetsInlineLimit 0) and keeps the module
 // at a few megabytes.
 import { defineConfig } from "vite";
+import { espeakFueraDelBuild } from "./scripts/espeak-fuera-del-build.mjs";
 
 export default defineConfig({
+  plugins: [espeakFueraDelBuild()],
   publicDir: false,
   // El motor que clona corre dentro de un Worker, y ese Worker se parte en
   // trozos. Rollup rechaza `iife` —el valor por defecto de Vite— en cuanto hay
   // mas de un trozo, asi que el build de la libreria fallaba entero desde que
   // `pocket-tts-onnx` entro. Mismo arreglo que en vite.config.ts.
-  worker: { format: "es" },
+  // El Worker es otro build de rollup y no hereda `plugins`: hay que darselo.
+  worker: { format: "es", plugins: () => [espeakFueraDelBuild()] },
   build: {
     target: "esnext",
     outDir: "dist/lib",

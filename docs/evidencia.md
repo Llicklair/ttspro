@@ -1810,6 +1810,45 @@ pagar la descarga de 216 MB una vez.
 
 **Lo que NO cambia:** los 0,413 de similitud. Esto es una decision de interfaz, no de calidad.
 
+## 2026-09-16 · El wasm GPL que el build repartia y nadie descargaba — FUERA, 18,5 MB
+
+**Montaje.** Marcos, sobre la nota de licencias: *«que obligacion?»*. Al ir a explicarla en detalle
+se comprueba de donde sale el fichero, en vez de repetir lo que decia THIRD_PARTY.
+
+**Lo que se encontro, leyendo la dependencia.**
+
+| | |
+|---|---|
+| Quien pide espeak | `pipeline.js:102` — solo si `hasPhonemes && (hay hebreo o `[[literal]]`)` |
+| `hasPhonemes` en el modelo espanol | **false**: no trae tokenizador de fonemas |
+| De donde salen los bytes | `platform.web.js:65` — `https://cdn.jsdelivr.net/npm/espeak-ng@1.0.2/...`, del **CDN** |
+| Como se los come | `espeak.js` los pasa como `wasmBinary`, asi que la URL local ni se mira |
+| Por que estaba en `dist/` | `new URL('espeak-ng.wasm', import.meta.url)` dentro del pegamento de Emscripten, el camino de repuesto para cuando NO te pasan los bytes |
+
+O sea: **18,5 MB de binario GPL-3.0 repartidos a cada visitante por un camino que no se ejecuta y
+una URL que no se consulta.** Y 68 KB mas de pegamento, que tambien es GPL. La obligacion no depende
+de si se usa: la contrae quien **distribuye**.
+
+**Y habia una segunda copia**, esta de la cadena vieja: `web/public/espeak/espeak-ng.wasm`, otros
+18,5 MB, que Vite copiaba a `dist/` sin que nadie la nombrara ya. Ignorada por git, asi que solo
+existia en esta maquina — pero un build hecho aqui la repartia igual. Borrada.
+
+**Consecuencia.** En los builds de produccion el paquete entero se sustituye por
+`src/runtime/espeak-remoto.ts`, que lo carga de jsDelivr si alguna vez hace falta. En `dev` y en
+los tests no se toca, que ahi no se distribuye a nadie.
+
+| En el build | Antes | Ahora |
+|---|---|---|
+| `espeak-ng.wasm` (asset emitido) | 18 485 010 B | **0** |
+| `espeak-ng.wasm` (copia de `public/`) | 18 485 010 B | **0** |
+| Pegamento de Emscripten | 68 384 B | **0** |
+| Sustituto, codigo propio MIT | — | 391 B |
+
+Verificado ejecutando el **bundle construido**: `libreria.spec.ts` carga `dist/lib/ttspro.js`,
+elige voz, importa un `.json`, habla y consume un stream. Y se anade un test que falla si un
+fichero de espeak-ng reaparece en `dist/`, porque esto vuelve solo en cuanto alguien quite el alias
+o entre otra dependencia que tire de el.
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo número cambia una decisión escrita. Cuando se midan, cada una

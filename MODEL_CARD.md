@@ -85,9 +85,9 @@ Every number is dated in [docs/evidencia.md](docs/evidencia.md), including the o
 - **The download is 398 MB, and 614 MB if you clone.** [ADR 0012](docs/adr/0012-supertonic-como-motor.md)
   retired the 110 MB budget on the owner's explicit instruction; that does not make the number
   small, and on a slow connection the first load is long. The page says so before downloading.
-- **A deployed build carries a GPL-3.0 obligation.** The cloning runtime depends on espeak-ng and
-  the build distributes its 18.5 MB wasm, even though Spanish never invokes it. See
-  [THIRD_PARTY.md](THIRD_PARTY.md); the resolution is still open.
+- The cloning runtime depends on **espeak-ng** (GPL-3.0-or-later), which Spanish never invokes.
+  It is not bundled: a published build loads it from a CDN if it is ever needed, so nothing GPL is
+  distributed. See [THIRD_PARTY.md](THIRD_PARTY.md).
 - **Only Spanish is measured.** The engine handles 31 languages and the rest are offered untested.
   Catalan is in neither model's list and was measured to say what happens anyway: readable but
   rough with the factory voices (WER 0.237), noise with a cloned one (1.409).

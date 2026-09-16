@@ -49,9 +49,16 @@ gave you permission.
   recording of a real person.
 - **Whatever OpenRAIL-M's use restrictions forbid.** That licence travels with the weights and its
   restrictions apply to you as much as to us; `LICENSE` is downloaded next to the graphs so it
-  cannot get separated from them. Read it before deploying anything.
-- Commercial use is outside the project's own scope ([ADR 0006](docs/adr/0006-uso-no-comercial-y-xtts-como-maestro.md)).
-  Note this is now **two** constraints, not one: the project's, and the weights'.
+  cannot get separated from them. They are restrictions on *use*, not on charging money, and the
+  two that this project walks closest to are worth naming rather than leaving in an attachment:
+  **(g)** no impersonating anyone without their consent, and **(e)** anything published has to say,
+  clearly, that it was machine generated. Read Attachment A before deploying anything.
+- Commercial use is outside **the project's own scope**
+  ([ADR 0006](docs/adr/0006-uso-no-comercial-y-xtts-como-maestro.md)). That is this repo's
+  constraint alone: neither licence here forbids charging money — OpenRAIL-M is royalty-free and
+  CC BY 4.0 is not a non-commercial licence. And going non-commercial buys no relief from the other
+  two obligations: attribution under CC BY applies whether or not you charge, and so does
+  Attachment A.
 - The engine handles 31 languages, but only Spanish is measured here. The rest are offered
   untested, and "untested" is the honest word for them.
 

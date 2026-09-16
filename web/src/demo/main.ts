@@ -302,6 +302,7 @@ async function cargar(respaldo = true): Promise<void> {
  * 200 con el index.html a lo que no encuentra.
  */
 async function listaDeVoces(raiz: string, porDefecto: string[]): Promise<string[]> {
+  if (esElArchivoDeUpstream(raiz)) return porDefecto;
   try {
     const r = await fetch(`${raiz}voice_styles/indice.json`);
     if (!r.ok) throw new Error(String(r.status));
@@ -316,8 +317,30 @@ async function listaDeVoces(raiz: string, porDefecto: string[]): Promise<string[
   }
 }
 
+/**
+ * Si este origen es el repo archivado de upstream, que **no** tiene ni
+ * `contrato.json` ni `voice_styles/indice.json`.
+ *
+ * Los dos ficheros los escribe `npm run preparar` en la copia local; el archivo
+ * de Supertone solo trae los grafos. Preguntarselos igual es pedir dos 404
+ * garantizados en cada arranque de quien no ha descargado nada — que es
+ * justamente el camino que la pagina promete: abrirla y que hable. Funcionaba,
+ * porque los dos tienen respaldo, pero dejaba la consola con errores rojos en una
+ * instalacion recien hecha, y eso hace dudar de si algo va mal.
+ *
+ * Se compara con la URL exacta y no con «parece de Hugging Face»: quien apunte a
+ * un espejo suyo con esos ficheros dentro tiene que seguir leyendolos.
+ */
+function esElArchivoDeUpstream(raiz: string): boolean {
+  return raiz === ORIGENES.huggingface;
+}
+
 /** El contrato si el origen lo tiene; si no, lo minimo que la pagina necesita. */
 async function leerContrato(raiz: string): Promise<Contrato> {
+  if (esElArchivoDeUpstream(raiz)) {
+    log(`${raiz} no trae contrato.json: usando el minimo para ${CONTRATO_MINIMO.version}`);
+    return CONTRATO_MINIMO;
+  }
   try {
     const r = await fetch(`${raiz}contrato.json`);
     if (!r.ok) throw new Error(String(r.status));

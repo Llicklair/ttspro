@@ -103,20 +103,25 @@ uv sync --extra dev --extra export --extra voz
 
 echo
 echo "== Model weights =="
-echo "   Nothing is required here any more (ADR 0012). The page loads its engine by itself:"
-echo "   Pocket TTS (177 MB) comes straight from Hugging Face into the browser cache, and it is"
-echo "   the one that can clone a voice from a recording."
+echo "   Nothing is required here: with no local copy the page pulls the engine straight from"
+echo "   Hugging Face into the browser cache, and the model that clones a voice from a"
+echo "   recording always comes that way."
 echo
-echo "   Supertonic is the other engine — it reads a touch better, at 44.1 kHz and in 31"
-echo "   languages, but it cannot clone. It is 398 MB and only worth keeping locally if you"
-echo "   are going to use it: the page can also pull it from Hugging Face on demand."
+echo "   A local copy (398 MB) only makes every later reload faster, and it is what the Python"
+echo "   tests need: without it, 27 of them skip."
 if [ -f models/supertonic/onnx/vector_estimator.onnx ]; then
   echo "   models/supertonic is already here, skipping."
 else
-  read -r -p "   Download Supertonic now (398 MB)? [s/N] " quiere
+  # `read` devuelve 1 al llegar al final de la entrada, y con `set -e` eso ABORTA
+  # el script entero: una instalacion automatizada (`./instalar.sh < /dev/null`, un
+  # Dockerfile, CI) moria aqui, despues del `uv sync` y antes de npm, diciendo
+  # nada. El `|| quiere=n` la convierte en lo unico razonable cuando no hay nadie
+  # delante: no descargar, que es ademas lo que menos cuesta deshacer.
+  quiere=n
+  read -r -t 20 -p "   Download it now (398 MB)? [s/N, N en 20s] " quiere || quiere=n
   case "$quiere" in
     s|S|y|Y) uv run python -m ttspro.supertonic.descargar ;;
-    *) echo "   skipped; the page pulls it from Hugging Face when you pick that engine." ;;
+    *) echo "   skipped; the page will pull it from Hugging Face on its own." ;;
   esac
 fi
 
@@ -144,7 +149,10 @@ echo "              anything that computes WER; uv sync prunes it if you leave i
 echo
 
 if [ "${1:-}" = "--sin-demo" ]; then exit 0; fi
-read -r -p "Start the demo now? [s/N] " respuesta
+# Mismo motivo que arriba: sin terminal, `read` falla y `set -e` mataria el script
+# en la ultima linea, despues de haberlo instalado todo bien.
+respuesta=n
+read -r -t 20 -p "Start the demo now? [s/N, N en 20s] " respuesta || respuesta=n
 case "$respuesta" in
   s|S|y|Y)
     if tiene xdg-open; then (sleep 2 && xdg-open http://localhost:5173) >/dev/null 2>&1 &

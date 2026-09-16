@@ -46,17 +46,24 @@ if errorlevel 1 goto :fallo
 
 echo.
 echo == Model weights ==
-echo    Nothing is required here any more (ADR 0012). The page loads its engine by itself:
-echo    Pocket TTS (177 MB) comes from Hugging Face into the browser cache, and it is the one
-echo    that can clone a voice from a recording.
+echo    Nothing is required here: with no local copy the page pulls the engine straight from
+echo    Hugging Face into the browser cache, and the model that clones a voice from a recording
+echo    always comes that way.
 echo.
-echo    Supertonic is the other engine: reads a touch better, 44.1 kHz and 31 languages, but
-echo    cannot clone. 398 MB, and only worth keeping locally if you are going to use it.
+echo    A local copy (398 MB) only makes every later reload faster, and it is what the Python
+echo    tests need: without it, 27 of them skip.
 if exist "models\supertonic\onnx\vector_estimator.onnx" (
   echo    models\supertonic is already here, skipping.
   goto :web
 )
-choice /c YN /n /m "   Download Supertonic now (398 MB)? [Y/N] "
+rem Dos cosas que `choice` a secas hace mal aqui:
+rem  - con stdin redirigido (instalacion automatizada) escribe en stderr un ERROR
+rem    que no viene a cuento y devuelve 255; el `errorlevel 2` lo tomaba por un
+rem    "No" de carambola, no por diseno. `2>nul` calla el ruido y el 255 sigue
+rem    cayendo del lado seguro, que es no descargar.
+rem  - sin /t se queda esperando para siempre a alguien que quiza no esta.
+rem Veinte segundos y, si nadie contesta, N: la pagina funciona igual sin la copia.
+choice /c YN /n /t 20 /d N /m "   Download it now (398 MB)? [Y/N, N en 20s] " 2>nul
 if errorlevel 2 goto :web
 call uv run python -m ttspro.supertonic.descargar
 if errorlevel 1 goto :fallo

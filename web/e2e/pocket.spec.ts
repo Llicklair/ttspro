@@ -17,13 +17,22 @@ import { expect, test } from "@playwright/test";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const REFERENCIA = resolve(AQUI, "referencia.wav");
+/** La sonda que decide si hay grafos servidos aqui; 404 cuando no los hay. */
+const SONDA_LOCAL = /\/models\/supertonic\/onnx\/tts\.json$/;
 
 test("pocket: carga, clona desde un wav y habla con esa voz", async ({ page }) => {
   test.setTimeout(1_800_000);
   const errores: string[] = [];
   page.on("pageerror", (e) => errores.push(e.message));
   page.on("console", (m) => {
-    if (m.type() === "error") errores.push(`console: ${m.text()}`);
+    if (m.type() !== "error") return;
+    // En una instalacion recien hecha no hay copia local de los grafos, y la
+    // pagina lo averigua **pidiendo uno**: ese 404 es como decide pasarse a
+    // Hugging Face, y el navegador lo escribe en la consola sin que la pagina
+    // pueda evitarlo. Se tolera por su URL exacta, no bajando la exigencia:
+    // cualquier otro error de consola sigue tumbando el test.
+    if (SONDA_LOCAL.test(m.location()?.url ?? "")) return;
+    errores.push(`console: ${m.text()}`);
   });
 
   await page.goto("/");

@@ -996,6 +996,746 @@ verdad; hasta hoy todo era Chromium headless con veinte mensajes simulados.
 Lo que sigue sin número: los tiempos de calibración en esa GPU (webgpu fp32 frente a wasm) siguen
 pendientes abajo; la página los mide con el botón «calibrar».
 
+## 2026-09-15 · Supertonic 3 como motor: el español, la velocidad y el agujero — MOTOR SÍ, CLONACIÓN NO
+
+**Montaje.** `supertone-oss-archive/supertonic-3` descargado con revisión fijada
+(`aafc6e32`), cuatro grafos ONNX, `onnxruntime` 1.29 en CPU, portátil de Marcos.
+Motor propio en `src/ttspro/supertonic/` (espejo en `web/src/runtime/supertonic.ts`).
+WER con Whisper-small y el mismo `normalizar_para_wer` que `ttspro.train.evaluar`, sobre dos
+conjuntos: las 12 frases españolas de `tests/fixtures/frontend/frases.txt` (existen para romper el
+frontend) y 10 frases normales, que son las comparables con el 0,030 de la voz base de Piper.
+Dos voces, F1 y M1, semilla fija. 44 síntesis.
+
+**Resultado.**
+
+| | Cadena de hoy (2026-09-05) | Supertonic 3 |
+|---|---|---|
+| WER español, frases normales | 0,030 | **0,008** medio · 0,000 mediana · 0,008 p90 |
+| WER español, `frases.txt` | — | 0,178 medio · **0,000 mediana** · 0,675 p90 |
+| Frecuencia de salida | 22 050 Hz | 44 100 Hz |
+| RTF en CPU (8 pasos) | — | **0,463** (1 703 ms por frase, 3,73 s de audio de media) |
+| Reparto del tiempo | conversor 2 861 de 3 460 ms | `vector_estimator` 2 122 de 2 676 ms |
+| Grafos | 111,3 MB fp16 + 17,6 de espeak | 398,1 MB fp32, **sin fonemizador** |
+
+Los dos fallos que cargan con casi todo el 0,178 del conjunto difícil tienen causas distintas y
+solo una es del modelo:
+
+- **Números leídos como dígitos**: «Tres mil quinientos veintidós euros» sale «3.522 euros». No es
+  del modelo, es que le llegó texto sin normalizar. `ttspro.frontend.normalizar` ya arregla esto y
+  se queda **delante** del frontend Unicode; la página ya lo hace así.
+- **«Pingüino, cigüeña, vergüenza» → WER 1,000 en las dos voces.** Esto sí es del modelo. La
+  diéresis está en la tabla (U+0308 → 152) y la NFKD la produce bien, comprobado; el checkpoint
+  tropieza con el dígrafo «güe/güi» del español. Tres palabras raras seguidas es el peor caso
+  posible y no aparece en frases normales, pero queda escrito.
+
+**El voice builder no existe en el archivo.** Comprobados fichero a fichero los cuatro repos de
+pesos (`Supertone/supertonic`, `-2`, `-3` y los espejos del archivo): los cuatro publican
+exactamente `text_encoder`, `duration_predictor`, `vector_estimator` y `vocoder`. El `tts.json`
+describe un `ae.encoder` y un `ttl.style_encoder` cuyos pesos **no se publicaron nunca**. Los
+`voice_styles/*.json` llevan `"source_file": "F1.wav"`: se extrajeron con la herramienta interna, y
+esa herramienta era un servicio alojado que cerró el **2026-08-31**.
+
+**Consecuencia.** [ADR 0012](adr/0012-supertonic-como-motor.md): el motor entra, la regla 1 se
+reformula, el presupuesto de descarga de la regla 8 se retira, espeak-ng se va con su GPL. El
+voice builder hay que reconstruirlo, y lo de abajo es el primer intento.
+
+## 2026-09-15 · Voice builder por mezcla de las diez voces — NO LLEGA, Y EL NÚMERO LO DICE
+
+**Montaje.** `ttspro.supertonic.constructor`: búsqueda por entropía cruzada sobre mezclas de las
+diez voces de fábrica, una mezcla distinta por cada una de las 50 fichas de estilo (500
+parámetros). Dos etapas, 8 + 18 generaciones, población 16, 4 pasos de flow durante la búsqueda,
+dos frases sonda. Referencia: `web/e2e/referencia.wav` (6 s). Objetivo: coseno de WeSpeaker con
+`models/speaker_encoder.onnx`, el mismo que usa `tests/terminado`. 904 evaluaciones, 873 s.
+
+**Resultado.**
+
+| | Coseno |
+|---|---|
+| Mejor voz de fábrica suelta (F1) | 0,100 |
+| Mejor de la búsqueda (sobre las frases sonda) | 0,283 |
+| **Verificado en tres frases que la búsqueda no vio** | **0,227** |
+| Cadena vieja (conversor de OpenVoice), para comparar | 0,338 |
+| Objetivo del criterio de terminado | 0,55 |
+
+La etapa 2 dejó de subir a la sexta generación y rebotó entre 0,22 y 0,28 durante doce más: no es
+que falten iteraciones, es que **el espacio se agotó**. Diez voces generan un subespacio afín de
+nueve dimensiones dentro de uno de 12 928; la envolvente convexa de diez puntos ahí dentro es casi
+nada. Y la caída de 0,283 a 0,227 al cambiar de frase dice que parte de lo que subió era ajuste a
+las dos sondas, no timbre.
+
+**Consecuencia.** La mezcla queda como lo que es: una forma rápida de sacar voces nuevas y
+distintas entre sí, no una clonación. **Peor que lo que el proyecto ya tenía.** Se busca por otro
+lado: reconstruir las dos piezas que faltan en vez de esquivarlas — invertir el `vocoder` por
+gradiente para obtener el latente de una grabación real (el `ae.encoder` que falta) y ajustar
+`latente → estilo` sobre pares que el propio modelo regala al muestrear (el `style_encoder` que
+falta). Medición en curso.
+
+## 2026-09-15 · Invertir el vocoder para recuperar el `ae.encoder` — FUNCIONA, Y CON MARGEN
+
+**Montaje.** Lo que falta para clonar son dos piezas que Supertone no publicó: `ae.encoder`
+(audio → latente) y `style_encoder` (latente → estilo). La primera no hace falta entrenarla,
+porque el **decoder sí está publicado** y es diferenciable: `vocoder.onnx` va de latente
+`[1,144,T]` a onda de 44,1 kHz, así que se puede buscar por descenso de gradiente el latente cuya
+onda **es** la grabación. Grafo pasado a torch con `onnx2torch` (reutilizando conversores de Cast,
+Constant, Pad, Reshape y Shape, que no cambiaron de semántica entre el opset 13-15 y el 19),
+pérdida multi-resolución STFT en magnitud lineal y logarítmica, Adam con coseno, 1 500 pasos.
+Referencia: `web/e2e/referencia.wav` (VCTK p225, 6 s). GTX 1070.
+
+**Resultado.**
+
+| | |
+|---|---|
+| Paridad torch ↔ onnxruntime sobre latente aleatorio | max \|dif\| **1,25e-6** — es el mismo grafo |
+| Latente a buscar | `[1, 144, 86]` = **12 384 números** para 5,99 s |
+| Pérdida | 11,38 → **5,54** (374 s) |
+| **Coseno de locutor original ↔ reconstruida** | **0,832** |
+| RMS original / reconstruida | 0,1287 / 0,1229 |
+
+Ese 0,832 es el número que importa, y conviene ponerlo al lado de los otros: mezclar las diez
+voces daba **0,227**, el conversor de OpenVoice daba **0,338**, el criterio de terminado pide
+**0,55**. La identidad del hablante **sobrevive** el viaje de ida y vuelta por el latente del
+modelo, así que el latente es un sitio legítimo desde el que construir una voz — cosa que el
+embedding de WeSpeaker, con sus 256 números entrenados para ser invariantes al contenido, no puede
+ser por sí solo.
+
+**Consecuencia.** `ttspro.supertonic.inversor`. Y el voice builder cambia de entrada: en vez de
+ajustar `embedding → estilo`, se ajusta `resumen del latente → estilo`, sobre pares que el modelo
+regala al muestrear (el latente ya se calcula, es lo que entra al vocoder). El muestreo guarda las
+tres cosas —estilo, embedding y resumen del latente— para poder comparar las tres vías con el mismo
+dataset en vez de discutirlas. `motor.lote(..., con_latente=True)` es lo que lo permite.
+
+Lo que **no** demuestra este número: que el `style_encoder` reconstruido conserve esos 0,832. El
+estilo es un resumen de 50×256 que tiene que valer para cualquier frase, no para esta; cuánto cae
+ahí es la medición siguiente.
+
+## 2026-09-16 · El puente `audio → estilo` por regresión — NO HAY NADA QUE APRENDER
+
+**Montaje.** 4 000 tríos `(estilo, embedding de WeSpeaker, resumen del latente)` generados por el
+propio modelo en 49 min de CPU (252 descartados por audio inservible). Estilos muestreados de tres
+fuentes: mezclas Dirichlet de las diez voces, mezclas con ruido por ficha, y gaussianas estiradas
+alrededor de la media. Ridge sobre las componentes principales del espacio de estilos, tres
+entradas posibles y tres tamaños, ajustadas y validadas sobre el mismo dataset con un corte 90/10.
+
+**Resultado.** El error relativo es `‖predicho − real‖ / ‖real − media‖`: **1,0 significa "predecir
+la media"**, y por encima de 1,0 es peor que la media.
+
+| entrada | dims | C | var. explicada | err. entrenamiento | err. validación |
+|---|---|---|---|---|---|
+| embedding | 256 | 64 | 0,811 | 1,014 | **1,045** |
+| latente | 432 | 64 | 0,811 | 1,015 | **1,037** |
+| ambos | 688 | 64 | 0,811 | 1,060 | **1,126** |
+
+Ninguna combinación de entrada y tamaño baja de 1,0. Y de extremo a extremo, que es lo que
+importa, sobre tres frases que el ajuste no vio:
+
+| Voz | Coseno con la referencia |
+|---|---|
+| La que devuelve el puente | **−0,0399** |
+| La voz **media**, sin puente ninguno | **−0,0409** |
+| La mejor voz de fábrica suelta (F1) | 0,1063 |
+
+El puente devuelve la voz media. Los dos números coinciden en la tercera cifra: no pasa ni un bit.
+
+**Por qué, que es lo que hay que recordar.** El muestreo recorre un espacio de 12 928 dimensiones
+donde la mayoría de las direcciones **no codifican una voz**: el mapa estilo → audio es muy
+perdedor, muchos estilos distintos suenan igual, y por tanto el inverso no es una función. Pedirle
+a una regresión que recupere 12 928 números desde 256 o 432 es pedirle que adivine ruido, y lo
+correcto ante ruido es devolver la media — que es exactamente lo que hace. El fallo no es del
+ajuste: es de la pregunta.
+
+**Consecuencia.** Se abandona la regresión `audio → estilo`, en cualquiera de sus entradas. Lo que
+queda, y ahora está claro que es el camino, es **optimizar el estilo por gradiente contra el modelo
+congelado**, con los latentes de la inversión como objetivo. La diferencia con la búsqueda por
+mezclas que ya falló (0,227) no es el optimizador: es el espacio. Las mezclas de diez voces viven
+en un subespacio afín de nueve dimensiones; el gradiente se mueve por las 12 928. El código del
+puente se conserva porque el muestreo y la inversión valen para eso, y porque un resultado negativo
+sin su código no se puede volver a comprobar.
+
+## 2026-09-16 · El estilo por gradiente: el optimizador va, la pérdida no — LA PREGUNTA OTRA VEZ
+
+**Montaje.** Tercer intento del voice builder, y el primero que no está confinado a un subespacio:
+los cuatro grafos pasados a torch con `onnx2torch`, congelados, y **el estilo como parámetro**
+(12 928 números) movido por Adam a través del modelo entero. Lo que en difusión se llama inversión
+textual. El objetivo son los latentes de la grabación real, que da `inversor.py`. Pérdida: MSE
+entre los **estadísticos por canal** del latente generado (media, desviación y energía a lo largo
+del tiempo, 432 números) y los de la referencia, más un anclaje al estilo de partida. Cuatro frases
+de ajuste rotando, tres de verificación que el ajuste no ve nunca. 300 iteraciones, GTX 1070.
+
+**El coseno de locutor NO entró en la pérdida**, a propósito: optimizar la métrica que luego se
+publica es la forma más rápida de mentirse.
+
+**Resultado.** Viabilidad primero, que también es un dato:
+
+| | |
+|---|---|
+| Los cuatro grafos a torch | paridad con ORT: `text_encoder` 1,25e-6; duración 2,9241846 vs 2,9241836 |
+| Gradiente que llega a `style_ttl` | media 1,8e-3, máx 3,3e-2 |
+| Memoria, 2 pasos de flow + vocoder | **0,70 GB** de 8 |
+| Coste | 0,53 s por iteración; 159 s las 300 |
+
+Y el resultado, que es el que duele:
+
+| | |
+|---|---|
+| Pérdida de ajuste | 0,0337 → **0,0025** (13 veces menos) |
+| Coseno de partida (F1, la mejor de fábrica) | 0,0729 |
+| **Coseno tras el ajuste** | **0,0719** |
+
+El optimizador hace su trabajo impecablemente y **la voz no se mueve ni una milésima**. Encontró un
+estilo que reproduce esos 432 números sin parecerse a la persona, que es exactamente lo que se le
+pidió.
+
+**Por qué.** El resumen es demasiado pobre. Media, desviación y energía **por canal** describen
+cuánta energía tiene cada canal, no cuáles se encienden juntos, y muchas voces distintas comparten
+esos 432 números. No es un fallo del gradiente ni del anclaje: es que la pérdida no discrimina
+identidad.
+
+**Consecuencia.** Se cambia el resumen, no el método: a la **matriz de correlaciones entre canales**
+(Gram, 20 880 números), que es donde la transferencia de estilo lleva desde 2015 diciendo que vive
+la textura. `inversor.resumen(..., forma="gram")` y `ajustador --resumen gram`. La forma
+`estadisticos` se conserva, porque un negativo sin su código no se puede volver a comprobar.
+
+**Con el Gram, mismo montaje, 400 iteraciones (211 s):**
+
+| | estadísticos (432) | **Gram (20 880)** |
+|---|---|---|
+| Pérdida de ajuste | 0,0337 → 0,0025 | 0,0025 → 0,0010 |
+| Coseno de partida | 0,0729 | 0,0729 |
+| **Coseno tras el ajuste** | 0,0719 | **0,1476** |
+
+Se mueve, y al doble. Es la primera pérdida que toca la identidad **sin meter dentro el medidor que
+luego juzga**. Sigue muy lejos del 0,55 y por debajo del 0,227 de las mezclas, pero el diagnóstico
+del resumen pobre era correcto: la información de locutor está en las correlaciones.
+
+El ajuste se estanca en la iteración 80 (0,00157 → 0,00104 en las 320 restantes) mientras el
+anclaje baja de 0,0117 a 0,0047, así que la hipótesis obvia era que el ancla frenaba. **Se probó y
+es falsa:** con el ancla diez veces más floja (0,005), 900 iteraciones y `lr` 0,03 (476 s), la
+pérdida baja más —0,00104 → 0,00090— y **el coseno empeora: 0,1476 → 0,1100**.
+
+Pérdida menor, voz peor. Eso no es un detalle de ajuste: es la prueba de que **el Gram del latente
+solo correlaciona débilmente con la identidad**, y que apretar el optimizador contra él lleva a
+estilos que cuadran las correlaciones sin parecerse a nadie. El ancla no estorbaba, protegía.
+
+**Estado del voice builder, cuatro intentos medidos:**
+
+| Vía | Coseno | Qué descarta |
+|---|---|---|
+| Mezclar las diez voces | **0,227** | el espacio de mezclas es de 9 dimensiones |
+| Regresión `audio → estilo` | −0,040 | el inverso no es una función; devuelve la media |
+| Gradiente + estadísticos por canal | 0,072 | el resumen no discrimina identidad |
+| Gradiente + Gram | **0,148** (0,110 si se aprieta) | el Gram correlaciona, pero poco |
+| *Para comparar:* conversor de OpenVoice (cadena vieja) | 0,338 | |
+| *Para comparar:* inversión del vocoder, ida y vuelta | 0,832 | **la información SÍ está ahí** |
+| Objetivo del criterio 4 | 0,55 | |
+
+Lo que sobrevive a los cuatro: el gradiente llega, es barato (0,53 s por iteración, 0,7 GB), y la
+identidad está en el latente. Lo que falta es **una pérdida que la vea**.
+
+**La tuerca que queda, y por qué no se ha girado sola.** Meter el coseno de WeSpeaker en la pérdida
+casi con seguridad funciona — es optimizar directamente el objetivo. Pero el criterio 4 de
+[SCOPE.md](../SCOPE.md) **es** ese coseno, así que hacerlo convierte el criterio en una profecía
+autocumplida. La salida honesta es ajustar con WeSpeaker y **juzgar con otro encoder distinto**
+(ECAPA, por ejemplo), que es una dependencia nueva y una decisión de método, no de código. Eso lo
+firma Marcos, no un agente.
+
+Tres intentos, tres negativos, y cada uno descarta una hipótesis distinta: el espacio era
+demasiado pequeño (mezclas), el inverso no es una función (regresión), el resumen no discrimina
+(estadísticos). Lo que sobrevive a los tres es que el gradiente **sí** llega y **sí** es barato.
+
+## 2026-09-16 · «Las voces no funcionan y clonar tampoco» — UNA ERA CIERTA
+
+**Montaje.** Marcos lo dice de la página; se reproduce con Playwright registrando errores de JS,
+peticiones fallidas y el estado, y se mide aparte si las diez voces son de verdad distintas.
+
+**Las voces sí funcionan, y son distintas.** Coseno de locutor entre las diez, misma frase, misma
+semilla, 8 pasos:
+
+| | media | mínimo | máximo |
+|---|---|---|---|
+| Todos los pares distintos | **0,288** | 0,066 | 0,566 |
+
+Y con estructura: el bloque femenino entre sí ronda 0,4, el masculino 0,43, y cruzados 0,18. El p99
+de locutores distintos con este encoder es 0,465, así que **son diez voces, no una repetida**.
+
+En el navegador, la misma frase con F1 y con M1 da WAV distintos byte a byte — 248 054 bytes con
+hash 2185818538 contra 247 896 y 2943382072. El estilo llega al grafo también ahí, que es lo que
+una etiqueta que cambia en la interfaz no demuestra.
+
+**Clonar no funcionaba, y por un bug mío.** `puenteDisponible()` hacía `HEAD` y miraba `r.ok`, pero
+**el servidor de desarrollo de Vite responde 200 con el `index.html` a cualquier ruta que no
+conoce**. Así que la página creía que había puente, pedía el JSON, y `r.json()` moría con
+`Unexpected token '<', "<!doctype "...`. El error subía sin capturar y elegir un fichero no hacía
+nada visible.
+
+**Consecuencia.** Tres cosas:
+
+1. `puenteDisponible` abre la cabecera y comprueba que dice lo que tiene que decir, en vez de
+   fiarse del código de estado. Lo mismo vale para cualquier otro `fetch` de JSON contra el dev
+   server, y por eso queda escrito aquí.
+2. `clonar()` captura y lo cuenta en la pastilla y en el registro. Un fallo silencioso es peor que
+   uno feo.
+3. **El camino «desde una grabación» sale apagado y dice por qué**, porque las cuatro medidas de
+   arriba dicen que no llega. En su lugar la página gana **importar una voz `.json`**, que es lo
+   que sí funciona hoy: construyes una fuera con `ttspro.supertonic.constructor` y la sueltas ahí.
+   Ofrecer un botón que devuelve la voz media no es una funcionalidad, es una trampa.
+
+Y un cuarto, del mismo bug: sin `models/supertonic` copiado, «cargar el motor» fallaba con
+`Unexpected token '<'` en vez de decir qué hacer. Ahora nombra las dos salidas — el botón de
+Hugging Face, o `descargar` más `npm run preparar`.
+
+**Un quinto, que salió al escribir la prueba.** La primera versión del test comparaba los WAV de F1
+y de M1 sin fijar la semilla, y los hashes cambiaban entre tiradas: con ruido distinto, dos audios
+distintos no demuestran nada sobre la voz. Al fijarla apareció el bug de verdad —
+`Number(campo) || undefined` convertía **la semilla 0 en aleatoria**, que es lo contrario de lo que
+dice el propio campo y de la regla 5. Vacío significa aleatorio; 0 es una semilla. El test ahora
+comprueba las dos mitades: con semilla fija, **la misma voz repite la toma exacta** y otra voz no,
+y lo único que cambió entre ambas es el estilo.
+
+## 2026-09-16 · ¿Hay packs de voces que descargar? — NO EXISTE NINGUNO, Y LOS DE v1/v2 NO SIRVEN
+
+**Montaje.** Marcos pregunta de dónde bajar más voces. Se busca en Hugging Face (`search=supertonic`,
+50 repos, y `search=voice_styles`) y se inspecciona el árbol de los candidatos con más tráfico. Y
+como los estilos de Supertonic 1 y 2 declaran **las mismas dimensiones** que los de la 3 —
+`style_ttl [1,50,256]`, `style_dp [1,8,16]` — se prueba si cargan y si suenan.
+
+**No existe ningún pack de terceros.** Buscar `voice_styles` en Hugging Face devuelve **cero
+resultados**. De los 50 repos que mencionan supertonic, los que llevan voces llevan **las mismas
+diez** (`ahk-d`, `nik2999`, `IsGarrido`, `Sky-Kim`, `thy025`, `Reza2kn`… todos F1–F5 y M1–M5); el
+resto son conversiones del motor a CoreML, MLX, TensorRT, RKNN o Qualcomm, sin voces. Es coherente
+con lo demás: la única herramienta que fabricaba una voz era el Voice Builder de Supertone, era un
+servicio alojado y cerró el 2026-08-31.
+
+**Y los estilos de v1 y v2 no valen en v3, aunque encajen.** Misma frase, semilla 7, 8 pasos:
+
+| Estilo | Duración | rms | WER | Transcripción |
+|---|---|---|---|---|
+| v3 F1 (referencia) | 5,03 s | — | — | — |
+| v1 F1 | 2,51 s | 0,209 | **1,214** | «oh la distancia es pacific diagonal solución stones…» |
+| v1 M1 | 2,46 s | 0,155 | 0,929 | «SÍ知pe» |
+| v2 F1 | 2,83 s | 0,104 | **1,000** | «surpassé el ataque, son5712вор» |
+| v2 M1 | 2,74 s | 0,038 | 0,786 | «¡Hora que esta es una frase, esta es una suya…» |
+
+Cargan sin quejarse y producen ruido: duraciones a la mitad, el rms cayendo hasta 0,038, y el
+reconocedor oyendo chino y francés inventados. **El espacio de estilos no se comparte entre
+checkpoints**, aunque las formas coincidan — que es exactamente lo que ya se dijo al descartar los
+encoders de locutor ajenos, ahora medido en el caso más favorable posible: el mismo modelo, dos
+versiones seguidas, las mismas dimensiones.
+
+**Consecuencia.** No hay nada que descargar y no hay nada que portar, así que las voces hay que
+**acuñarlas**: `ttspro.supertonic.pack`. Y ahí conviene separar dos cosas que se venían mezclando:
+
+    parecerse a una persona concreta      0,227 sobre 0,55 — medido, NO llega
+    inventar voces distintas entre sí     otro problema, y este sí se resuelve
+
+Para «una voz por usuario» en un chat no hace falta lo primero. `pack` muestrea mezclas con ruido
+por ficha de estilo, tira las que no hablan y elige las N **más separadas entre sí** por muestreo
+del punto más lejano, que maximiza la distancia mínima en vez de la media. El listón es el del
+propio proyecto: el p99 del coseno entre locutores distintos con este encoder es 0,465, y el
+comando dice cuántos pares se quedan por encima.
+
+## 2026-09-16 · Por que fallaban los cuatro intentos: el latente lo domina el ruido — CAUSA ENCONTRADA
+
+**Montaje.** Marcos: *«hay que arreglar lo de clonar desde una grabación cuando podamos y que dé un
+buen resultado»*. Antes de seguir probando ideas, dos comprobaciones que nunca se habían hecho.
+
+**1. El término de locutor, dentro de la pérdida.** El encoder de WeSpeaker pasa a torch con
+paridad **2,0e-7** y coseno **1,000000** contra onnxruntime, y el gradiente lo atraviesa hasta la
+onda: la cadena `estilo → latente → onda → embedding` es derivable entera. Se optimiza el coseno
+directamente, 400 iteraciones.
+
+| | Coseno |
+|---|---|
+| Partida (F1) | 0,0729 |
+| Durante el ajuste, en las frases de ajuste | 0,148 |
+| **Verificado en frases que no vio** | **0,0409** |
+
+Sube donde se le empuja y **baja por debajo del punto de partida** en cualquier otra frase.
+
+**2. La prueba que separa «método roto» de «objetivo inalcanzable».** Todo se venía midiendo contra
+VCTK p225, una locutora inglesa a la que la mejor voz de fábrica solo saca 0,073 — si el modelo no
+puede expresar esa voz, ningún optimizador la alcanza y los negativos no dicen nada del método. Así
+que se cambia el objetivo por **una de sus propias voces**: se sintetiza con M3, se trata ese audio
+como una grabación cualquiera y se intenta reconstruir su estilo partiendo de F1. El estilo
+verdadero existe y es alcanzable **por construcción**.
+
+| | Coseno |
+|---|---|
+| Techo (la propia M3 contra sí misma) | **0,9144** |
+| Partida (F1) | 0,2306 |
+| Inversión del vocoder sobre el audio de M3 | 0,9242 |
+| Tras ajustar, sin término de locutor | **−0,0908** |
+| Tras ajustar, con término de locutor | **−0,0461** |
+
+El ajuste aleja la voz hasta valores **negativos** mientras la pérdida baja, con la respuesta
+correcta al alcance. **El método está roto, y p225 no era la excusa.**
+
+**3. La causa.** Se compara el forward en torch del ajustador con el del motor, dándoles el mismo
+estilo de M3:
+
+| | |
+|---|---|
+| Coseno de locutor ONNX vs torch, mismo estilo | 0,8622 — **el forward es correcto** |
+| Duración / rms | 3,69 s / 0,0778 contra 3,76 s / 0,0751 |
+| **Correlación entre los dos latentes** | **0,3043** |
+
+Dos latentes del **mismo estilo diciendo la misma frase** se parecen un 30 %. La voz sobrevive
+—0,86 de coseno— pero el latente no: **lo domina el ruido del flow matching**, no el estilo. Y todo
+lo que se venía optimizando eran estadísticos de **un** latente contra estadísticos de **otro**, así
+que el gradiente apuntaba al sorteo de ruido y no a la voz. La pérdida bajaba porque siempre se
+puede deformar el estilo hasta cuadrar unas correlaciones; el timbre se iba por el mismo camino.
+
+Esto explica los cuatro negativos anteriores de golpe, y explica también por qué el de locutor solo
+funcionaba en las frases que veía: con **un** sorteo por iteración, el gradiente es casi todo ruido.
+
+**Consecuencia.** `ajustar(..., sorteos=N)`: cada iteración promedia sobre N sorteos de ruido y N
+frases, con un `backward` por sorteo para que la memoria no se multiplique. Y a partir de ahora el
+banco de pruebas del voice builder es **reconstruir una voz de fábrica**, no p225: tiene techo
+conocido (0,9144) y respuesta conocida, así que distingue un método que funciona de uno que no.
+Medición en curso.
+
+## 2026-09-16 · Sexto intento, con el ruido promediado — RECONSTRUIR EL VOICE BUILDER DE SUPERTONIC, CERRADO
+
+**Montaje.** Corregido lo que decia el diagnostico anterior: cada iteracion promedia sobre 4
+sorteos de ruido y 4 frases, con un `backward` por sorteo. Banco de pruebas con verdad conocida —
+reconstruir el estilo de M3 desde su propio audio, partiendo de F1. 200 iteraciones.
+
+**Resultado.**
+
+| | Coseno |
+|---|---|
+| Techo (M3 contra si misma) | 0,9144 |
+| Partida (F1) | **0,2306** |
+| Inversion del vocoder (otra vez impecable) | 0,9428 |
+| Ajustado, con termino de locutor | **0,0519** |
+| Ajustado, sin termino de locutor | **−0,0424** |
+
+Promediar el ruido era la hipotesis correcta sobre *por que* fallaba, y **no basta**. Con la
+respuesta al alcance y el techo a 0,91, el ajuste sigue alejando la voz por debajo del punto de
+partida.
+
+**Consecuencia. Se cierra la linea.** Seis intentos, seis negativos:
+
+| Via | Coseno | Que descarta |
+|---|---|---|
+| Mezclar las diez voces | 0,227 | el espacio de mezclas es de 9 dimensiones |
+| Regresion `audio → estilo` | −0,040 | el inverso no es una funcion |
+| Gradiente + estadisticos por canal | 0,072 | el resumen no discrimina |
+| Gradiente + Gram | 0,148 | el Gram correlaciona, pero poco |
+| Gradiente + coseno en la perdida | 0,041 | no generaliza fuera de sus frases |
+| **Lo anterior + ruido promediado, con verdad conocida** | **0,052** | **no es el ruido** |
+
+Lo unico que funciona de todo esto es la **inversion del vocoder** (0,83–0,94, tres veces
+reproducida): recuperar el `ae.encoder` si se puede. Lo que no se puede es recuperar el
+`style_encoder`, y sin el no hay clonacion. El coste ya gastado son ~40 min de GPU y seis
+experimentos; seguir seria tirar mas.
+
+Lo que hay que hacer en su lugar esta en la entrada siguiente: **no reconstruir la pieza que falta,
+sino usar un modelo que la publique**.
+
+## 2026-09-16 · Pocket TTS: el voice builder que Supertonic no tiene, publicado — CLONA EN 0,44 s
+
+**Montaje.** Marcos: *«sino busca un voice builder ya hecho que funcione en segundos»*. Lo hay, y es
+posterior al corte de conocimiento del agente: **Pocket TTS** de Kyutai (enero de 2026, 100 M
+parametros, CC BY 4.0). Lo que a Supertonic le falta, este lo publica: `mimi_encoder.onnx`, el
+encoder de audio a latente, en el export de
+[`KevinAHM/pocket-tts-onnx`](https://huggingface.co/KevinAHM/pocket-tts-onnx) — no gateado, con
+bundles por idioma, **espanol incluido**, y `encode_voice(wav)` como unica llamada para clonar.
+
+Medido con el MISMO arnes que Supertonic: las mismas 10 frases normales, Whisper-small, el mismo
+`normalizar_para_wer`, y el coseno de WeSpeaker contra `web/e2e/referencia.wav` (VCTK p225).
+Bundle `spanish`, int8, CPU.
+
+**Resultado, barriendo temperatura** (la por defecto, 0,7, es la peor):
+
+| temperatura | pasos de flow | WER medio | mediana | coseno medio | maximo | RTF |
+|---|---|---|---|---|---|---|
+| 0,7 (por defecto) | 1 | 0,119 | 0,087 | 0,472 | 0,563 | 0,499 |
+| **0,5** | 1 | **0,027** | **0,000** | **0,449** | 0,526 | 0,483 |
+| 0,3 | 1 | 0,045 | 0,000 | 0,464 | 0,517 | 0,480 |
+| 0,3 | 2 | 0,108 | 0,000 | 0,461 | 0,569 | 0,491 |
+| 0,1 | 1 | 0,246 | 0,142 | 0,413 | 0,548 | 0,489 |
+
+Con la temperatura por defecto se comia la primera palabra de forma intermitente («Ayer estuvimos»
+→ «estuvimos», «Gracias por» → «seas por»), que parecia un artefacto de arranque del streaming y
+era muestreo. A 0,5 desaparece. Bajar mas degenera.
+
+**Contra lo que hay:**
+
+| | Supertonic 3 | Pocket TTS (temp 0,5) |
+|---|---|---|
+| **Clonar desde una grabacion** | **no existe**; 6 intentos, mejor 0,227 | **0,449 medio · 0,526 max** |
+| Tiempo de clonar | ~40 min de GPU, y falla | **0,44 s**, una llamada |
+| WER espanol, frases normales | **0,008** | 0,027 (mediana 0,000) |
+| RTF en CPU | 0,463 | 0,483 |
+| Descarga | 398 MB fp32 | **202 MB int8** |
+| Frecuencia de salida | **44 100 Hz** | 24 000 Hz |
+| Idiomas | **31** | 6 (en, fr, de, it, pt, es) |
+| Licencia de pesos | OpenRAIL-M, con restricciones | **CC BY 4.0**, solo atribucion |
+
+Los dos pasan el criterio de inteligibilidad (≤ 0,10). En clonacion, **0,449 dobla el 0,227 de
+Supertonic y supera el 0,338 del conversor de OpenVoice**, y el maximo por frase (0,526–0,569) toca
+el objetivo de 0,55. Sigue sin llegar de media, y eso hay que decirlo: 0,449 no es 0,55.
+
+**Medido el techo, el numero baja.** Repetido con el montaje del criterio 4 de verdad — seis
+locutores de OpenSLR es, una grabacion para clonar, **otra distinta del mismo locutor** para el
+techo, y frases del propio corpus — que es exactamente con el que se midio la cadena vieja:
+
+| | Cadena vieja (OpenVoice) | Pocket TTS |
+|---|---|---|
+| Similitud media | 0,338 | **0,375** |
+| Techo (dos grabaciones reales) | 0,758 | 0,752 |
+| Razon del techo (el criterio pide 0,75) | 0,446 | **0,498** |
+| WER clonando, frases de corpus | 0,417 | **0,218** |
+| Tiempo de clonar | — | 752 ms de media (266–1 402) |
+
+**El 0,449 de la tirada anterior era un solo locutor y era optimista.** El numero honesto es 0,375:
+mejora el 0,338, pero de forma modesta, y **no pasa el criterio 4** ni por el 0,55 absoluto ni por
+el 0,75 del techo. Lo que si mejora claramente es el WER al clonar: 0,218 contra 0,417.
+
+Con 6 locutores parecia que la calidad de la grabacion mandaba (`pef_08784` saco 0,563 con techo
+0,867, `clm_02484` 0,297). **Repetido con 14 locutores, esa lectura era falsa** — ver abajo.
+
+**Y la variante de 24 capas mejora las dos cosas.** Mismo montaje, `spanish_24l`:
+
+| | Cadena vieja | Pocket 6L | **Pocket 24L** |
+|---|---|---|---|
+| Similitud media | 0,338 | 0,375 | **0,428** |
+| Mediana / maxima | — | 0,383 / 0,574 | 0,403 / **0,673** |
+| Techo | 0,758 | 0,752 | 0,752 |
+| Razon del techo (pide 0,75) | 0,446 | 0,498 | **0,569** |
+| **WER clonando** | 0,417 | 0,218 | **0,086 ✅ PASA** |
+| Tiempo de clonar | — | 752 ms | **488 ms** |
+| Descarga (int8) | — | 202 MB | ~376 MB |
+
+**Por primera vez en el proyecto, la voz clonada pasa el criterio de inteligibilidad** (≤ 0,10):
+0,086 con mediana 0,000, frente al 0,417 de la cadena vieja al convertir. La similitud sigue sin
+pasar —0,428 contra 0,55, y 0,569 del techo contra 0,75— pero es el mejor numero medido nunca aqui,
+y un locutor (`pef_08784`, referencia limpia, techo 0,867) llego a **0,626 con WER 0,028**.
+
+**El RTF del 24 capas lo descarta para el chat.** Medido en la misma maquina, int8, CPU:
+
+| bundle | ms por frase | RTF | x tiempo real |
+|---|---|---|---|
+| `spanish` (6 capas) | 3 148 | 0,753 | 1,33x |
+| `spanish_24l` | 7 535 | **2,427** | **0,41x** |
+| *Supertonic, para comparar* | 1 703 | 0,463 | 2,16x |
+
+El de 24 capas tarda **7,5 s en decir una frase de 3 s**: leer un chat en vivo con eso es imposible.
+El de 6 va justo (1,33x) y Supertonic va holgado (2,16x).
+
+Asi que no hay un ganador unico, hay un dial, y cae solo en los dos modos que ya tiene la pagina:
+
+    Chat     -> `spanish` 6 capas: 1,33x tiempo real, clonacion 0,375, WER 0,218
+    Estudio  -> `spanish_24l`:     0,41x,             clonacion 0,428, WER 0,086
+
+Cada bundle trae **su propio** `mimi_encoder.onnx` (hashes distintos entre `spanish` y
+`spanish_24l`, aunque el decoder si lo comparten), asi que las voces no se cruzan entre bundles. No
+importa: clonar cuesta 0,5 s, se clona con el que vaya a hablar.
+
+**Lo que sigue sin medirse:** la ejecucion en navegador. El export esta pensado para ONNX Runtime
+Web y [pocket-tts-raven](https://github.com/pkalogiros/pocket-tts-raven) reporta ~14x tiempo real
+con un runtime en C++/WASM, pero eso es su numero, no uno de aqui — y los RTF de arriba dicen que
+conviene desconfiar de los numeros ajenos. Y falta el navegador: el export esta pensado para ONNX Runtime Web y
+[pocket-tts-raven](https://github.com/pkalogiros/pocket-tts-raven) reporta ~14x tiempo real ahi con
+un runtime en C++/WASM, pero aqui no se ha ejecutado en navegador.
+
+**Consecuencia.** La linea de reconstruir el voice builder de Supertonic queda cerrada por la
+entrada anterior; esta dice por donde sigue: **no reconstruir la pieza que falta, usar el modelo que
+la publica**. Es una decision de motor, con un coste real —24 kHz en vez de 44,1, seis idiomas en
+vez de treinta y uno— y la firma Marcos.
+
+## 2026-09-16 · ¿Limita el modelo o la grabacion? — LIMITA EL MODELO, Y SE ESTANCA EN 0,41–0,45
+
+**Montaje.** Con 6 locutores la similitud iba de 0,297 a 0,563 y parecia seguir a la calidad de la
+referencia; si fuera asi, con una grabacion limpia se llegaria al 0,55 y la migracion se
+justificaria sola. Se repite con **14 locutores** de OpenSLR es, bundle `spanish_24l`, y se
+correlaciona la similitud con el **techo** de cada uno (dos grabaciones reales del mismo locutor),
+que es una medida directa de lo buena que es su referencia.
+
+**Resultado.**
+
+| | |
+|---|---|
+| Similitud media (14 locutores, 42 frases) | **0,413** |
+| Techo medio | 0,760 |
+| Razon del techo | 0,543 |
+| WER medio / mediana | 0,184 / 0,101 |
+| Tiempo de clonar | 444 ms |
+
+Y la correlacion, que es lo que se venia a buscar:
+
+    correlacion techo <-> similitud:  r = +0,247   (debil)
+    ajuste:  similitud = 0,262 x techo + 0,213
+
+| Referencia | Similitud esperada |
+|---|---|
+| techo 0,70 (regular) | 0,397 |
+| techo 0,90 (excelente) | **0,450** |
+
+Los 5 locutores de mejor referencia sacan 0,451 de media; los 5 peores, 0,395. **56 milesimas sobre
+un rango enorme de calidad de audio.** La correlacion con el WER es todavia menor (r = −0,109).
+
+**Consecuencia, y correccion.** La lectura anterior —«la calidad de la grabacion decide mas que el
+modelo»— **era falsa**: con 6 locutores y 3 frases cada uno, aquel 0,626 contra 0,297 era ruido de
+muestreo. Pocket TTS **se estanca en 0,41–0,45 independientemente de la referencia**, y no va a
+llegar al 0,55 del criterio 4 con una grabacion mejor.
+
+Eso no lo descarta: 0,413 sigue siendo mejor que el 0,338 de la cadena vieja, clona en 0,44 s contra
+seis intentos fallidos, pesa la mitad y su licencia es CC BY 4.0 en vez de OpenRAIL-M. Pero lo que
+se compra migrando es **clonacion que funciona a 0,41**, no clonacion que pase el criterio. Quien
+decida tiene que decidir sabiendo eso.
+
+## 2026-09-16 · Clonar desde una grabacion, en el navegador — FUNCIONA
+
+**Montaje.** Marcos, mirando la pagina: *«veo el mismo motor y sigo sin poder cargar audios»*.
+Tenia razon en las dos: Pocket TTS se habia medido pero no migrado, y aunque el explorador ya
+dejaba elegir el audio, la pagina lo rechazaba a proposito porque Supertonic no sabe clonar.
+
+Lo que faltaba era un runtime de Pocket TTS para el navegador, y existe:
+[`pocket-tts-onnx`](https://github.com/thewh1teagle/pocket-tts-onnx) — TypeScript, en npm, CC BY
+4.0, onnxruntime-web dentro de un **Worker**, siete idiomas con el espanol entre ellos, y
+`engine.clone(samples)` como voice builder entero. Los pesos (177 MB, mas 39 del encoder solo si
+clonas) vienen de Hugging Face y se quedan en la Cache API.
+
+**Resultado, en Chromium, sin un solo error de JS:**
+
+| | |
+|---|---|
+| Voces de fabrica del bundle espanol | **2** (`javert`, `lola`) — no las 8 del ingles |
+| Clonar desde un wav, **primera vez** | **7 426 ms** (incluye bajar el encoder de 39 MB) |
+| Hablar con la voz clonada | 2,96 s de audio en 2 192 ms, **RTF 0,74** (1,35x tiempo real) |
+
+Sueltas un fichero y sale una voz que habla. Es lo que el proyecto llevaba persiguiendo desde el
+principio y lo que seis intentos de reconstruir el voice builder de Supertonic no dieron.
+
+**Consecuencia.** La pagina lleva **dos motores** con selector, y arranca en Pocket:
+
+| | Pocket (por defecto) | Supertonic |
+|---|---|---|
+| Clonar desde audio | **si, y lo ofrece** | no, y lo dice |
+| Descarga | 177 MB (+39 al clonar) | 398 MB |
+| Velocidad en navegador | RTF 0,74 | RTF 0,37 (1 paso) |
+| Calidad | WER 0,027 · 24 kHz · 7 idiomas | WER 0,008 · 44,1 kHz · 31 idiomas |
+
+La temperatura va fijada a **0,5** y no a los 0,7 de fabrica, por la medicion del barrido.
+
+**Y un bug que solo aparece con dos motores.** Cambiar de motor mientras el primero esta cargando
+lanzaba **dos cargas a la vez**, y se quedaba la que acabara ultima, que no tiene por que ser la
+que pediste. En el registro se ve entero:
+
+    pagina lista; cargando el motor sola     <- arranca solo (pocket)
+    motor: supertonic                        <- el selector lanza OTRA carga
+    supertonic cargado en wasm               <- termina la segunda
+    pocket cargado, 2 voces                  <- ...y luego la PRIMERA, que pisa a la otra
+
+La pagina acababa en Pocket con las tarjetas de los dos motores mezcladas (12 voces) y rechazando
+un `.json` de Supertonic por «el motor activo es Pocket». Arreglado con el mismo patron que el
+turno de sintesis: cada carga lleva un numero y solo la ultima publica su motor; las demas cierran
+el suyo y se van. Lo encontro el e2e, no el ojo.
+
+**Lo que esto se lleva por delante, y hay que decirlo:** `pocket-tts-onnx` depende de `espeak-ng`,
+asi que **el wasm de espeak vuelve al bundle** (18,5 MB). El espanol no lo invoca nunca — solo se
+usa para palabras latinas dentro de hebreo — pero un build desplegado lo **distribuye**, y la
+obligacion GPL-3.0 va con la distribucion, no con la ejecucion. ADR 0012 daba por cerrada esa
+puerta al quitar el fonemizador; con este paquete se reabre, y THIRD_PARTY.md tiene que decirlo.
+
+## 2026-09-16 · Los pasos del decodificador de Pocket son gratis — Y VENIAN AL MINIMO
+
+**Montaje.** Marcos, tras probar: *«esta bien pero seria increible si pudieramos subir un poco la
+calidad»*. Se mira que palancas hay de verdad. El `assets.json` del bundle espanol lo dice:
+
+    sampler_decode_steps = 1     <- lo que se venia usando
+    max_decode_steps     = 4     <- el tope
+    temperature          = 0.7
+
+Dos cosas mal a la vez: la pagina pedia 8 pasos y **el motor recortaba a 4 en silencio**, y el
+deslizador ofrecia hasta 24, que era mentira. Y el valor efectivo era el de fabrica, 1.
+
+**Resultado**, misma frase, misma voz clonada, Chromium:
+
+| pasos | RTF | segundos de audio |
+|---|---|---|
+| 1 | 0,81 | 2,82 |
+| **4** | **0,72** | 3,11 |
+
+**Subir de 1 a 4 no cuesta tiempo.** La prediccion escrita antes de medir era «unas cuatro veces
+mas lento», y es falsa: lo caro es el bucle autorregresivo del modelo de lenguaje, que corre igual
+en los dos casos, y los pasos del decodificador de flow son calderilla al lado.
+
+**Consecuencia.** El deslizador pasa a 1–4 (lo que el modelo admite) y arranca en **4**, y el chat
+tambien, porque ya no hay nada que pagar. Antes se habia repartido 1 para chat y 4 para estudio
+suponiendo un coste que no existe.
+
+Y de paso queda a la vista que el 0,5 de temperatura que se habia forzado en `pocket.ts` venia de
+una medicion hecha con **otro** export: este modelo declara 0,7 en su propio `config`. Se quita el
+forzado y pasa a deslizador, con el extremo izquierdo como «la del modelo».
+
+## 2026-09-16 · La palanca de calidad no era un parametro: era la duracion — +13 PUNTOS
+
+**Montaje.** El encoder de Pocket lee hasta 20 s y la pagina le daba 8 (y el boton decia 6). Antes
+de recomendar «graba mas largo» por intuicion, se mide: para 6 locutores de OpenSLR es se
+concatenan sus propias frases hasta 2, 5, 10 y 20 s, se clona con cada tramo, y se mide el coseno
+contra un tramo largo **que el clonado no vio**. Bundle `spanish_24l`, temperatura 0,5.
+
+**Resultado.**
+
+| Grabacion que se le da | Similitud |
+|---|---|
+| 2 s | 0,396 |
+| 5 s | 0,409 |
+| 10 s | 0,441 |
+| **20 s** | **0,527** |
+
+**+13,1 puntos de 2 a 20 segundos**, y monotono. El 0,527 de los 20 s roza el 0,55 que pide el
+criterio 4, partiendo de un 0,396 que no se acerca.
+
+Conviene ponerlo al lado de lo otro que se midio sobre la referencia: su **calidad** apenas importa
+(correlacion con el techo r = +0,247, 56 milesimas entre las mejores y las peores), pero su
+**duracion** importa muchisimo. Son cosas distintas y las dos estan medidas ahora: da igual con que
+grabes, importa cuanto.
+
+**Consecuencia.** El boton pasa de «grabar 6 s» —que grababa 8— a **grabar 20 s**, con el contador
+a la vista mientras graba, y al clonar desde fichero se usan los 20 primeros segundos en vez de
+recortar antes. Es el cambio de mas efecto de toda la sesion y no toca ni un parametro del modelo.
+
+## 2026-09-16 · ¿Catalan? — NO ESTA EN NINGUNO, PERO SUPERTONIC LO LEE Y POCKET NO
+
+**Montaje.** Marcos pregunta si el programa acepta catalan. Ninguno de los dos motores lo lista:
+Supertonic tiene 31 idiomas (ni `ca`, ni `gl`, ni `eu`) y Pocket tiene 7. Pero el texto **entra
+igual** — el indexador Unicode conoce `ç`, `l·l` y `ny` sin un solo caracter desconocido —, asi que
+la pregunta no es si lo acepta sino que sale por el altavoz. Seis frases con lo dificil para un
+lector espanol (ç, ela geminada, x inicial, tj, ny, vocales neutras, consonantes finales), y Whisper
+transcribiendo **en catalan**.
+
+**Resultado.**
+
+| Motor | WER en catalan | Su WER en espanol |
+|---|---|---|
+| Pocket, bundle `spanish` | **1,409** | 0,027 |
+| Supertonic, idioma `es` | **0,237** | 0,008 |
+
+Sesenta veces peor uno que otro. Lo que dice cada uno de la misma frase:
+
+    Pocket:      «El Xavier va casar un PXR contra el Ponto»
+    Supertonic:  «El Xavier va casar un peix al costat del pont»   (WER 0,100)
+
+Y «Bon dia, com estàs? Avui fa molt bon temps» Supertonic la transcribe **perfecta, WER 0,000**.
+
+**Por que.** Supertonic lee **caracteres** y esta entrenado en 31 idiomas, entre ellos espanol,
+frances, italiano y portugues; el catalan comparte con ellos casi toda la ortografia, asi que lo
+deletrea razonablemente sin que nadie se lo haya ensenado. Pocket tiene un tokenizador **solo
+espanol** y se atraganta. Donde Supertonic falla es en lo especificamente catalan: `pa amb
+tomàquet` → «pambe, tomàquet i un Gotebi», `Ahir vam anar` → «Air va manar».
+
+Aviso sobre el juez: Whisper-small transcribiendo catalan no es perfecto, asi que parte de ese
+0,237 es suyo y no del sintetizador.
+
+**Consecuencia.** 0,237 esta muy por encima del ≤ 0,10 del criterio, asi que **el catalan no esta
+soportado** y no se va a anunciar. Pero da un motivo mas para que convivan los dos motores, y ahora
+medido: **Pocket clona, Supertonic habla mas idiomas** — incluidos algunos que no figuran en su
+lista. Quien quiera leer catalan, gallego o cualquier lengua romanica que no este, que pruebe
+Supertonic; con Pocket no hay nada que hacer.
+
 ---
 
 ## Mediciones pendientes que deciden algo

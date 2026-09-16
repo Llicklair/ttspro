@@ -13,6 +13,10 @@ export default defineConfig({
   server: { headers: aislamiento, port: 5173 },
   preview: { headers: aislamiento },
   build: { target: "esnext" },
+  // El worker de pocket-tts-onnx importa onnxruntime, asi que su bundle sale en
+  // varios trozos y el formato `iife` que Vite usa por defecto para workers no
+  // admite mas de uno. Con `es` se empaqueta como modulo y se acabo.
+  worker: { format: "es" },
   optimizeDeps: { exclude: ["onnxruntime-web", "espeak-ng"] },
   test: { include: ["src/**/*.test.ts"] },
 });

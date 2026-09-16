@@ -29,6 +29,17 @@ export = [
     "huggingface_hub>=0.24",
     "soundfile>=0.12",
 ]
+# El voice builder (ADR 0012): invierte el vocoder por gradiente para recuperar el
+# `ae.encoder` que Supertone no publico. Solo lo usa la construccion de voces, que
+# es offline; `ttspro.supertonic.motor` no importa nada de aqui y torch no llega
+# jamas al navegador (reglas 6 y 7).
+voz = [
+    "torch>=2.4",
+    "onnx>=1.16",
+    "onnx2torch>=1.5",
+    "scipy>=1.11",
+    "soundfile>=0.12",
+]
 # Objective evaluation of the done criterion (SCOPE.md): WER with Whisper,
 # speaker similarity with the exported encoder.
 eval = [

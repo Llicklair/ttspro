@@ -17,6 +17,12 @@ web/public/espeak/
 web/public/models/
 
 # Model weights and data never go in git (data/README.md has the table)
+# El motor de ADR 0012 son 398 MB descargados: ni un byte de esto entra en git.
+# `uv run python -m ttspro.supertonic.descargar` lo trae con la revision fijada.
+models/supertonic/
+# ...salvo las voces construidas aqui, que pesan 292 KB y SI son trabajo propio.
+!models/supertonic/voice_styles/
+models/supertonic/voice_styles/[FM][1-5].json
 models/*.onnx
 models/*.export.json
 cache/

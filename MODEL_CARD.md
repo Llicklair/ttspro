@@ -4,23 +4,28 @@ Spanish text-to-speech with voice cloning, four ONNX graphs that run **in the br
 before publication because the scope asks for it: a repo that hands out a cloning model states what
 it does, what it does badly, and what it must not be used for.
 
-**Version:** 2026-09-05 · **Contact:** the repository issues · **Licence:** see
-[THIRD_PARTY.md](THIRD_PARTY.md) and [ADR 0009](docs/adr/0009-publicacion-en-github.md)
+**Version:** 2026-09-16 · **Contact:** the repository issues · **Licence:** the code is MIT, the
+**weights are OpenRAIL-M** — an open licence *with use restrictions*, which are part of this card,
+not a footnote. See [THIRD_PARTY.md](THIRD_PARTY.md),
+[ADR 0009](docs/adr/0009-publicacion-en-github.md) and
+[ADR 0012](docs/adr/0012-supertonic-como-motor.md).
 
 ## What it is
 
-Text becomes phonemes with espeak-ng, phonemes become audio in one fixed base voice, and a
-tone-colour converter turns that audio into the voice you picked — a preset or one cloned from a
-recording. Nothing was trained for this project: the base voice is a ported Piper voice and the
-converter is ported OpenVoice v2 ([ADR 0007](docs/adr/0007-clonacion-como-postproceso.md),
-[ADR 0008](docs/adr/0008-la-voz-base-es-una-voz-de-piper.md)).
+Since [ADR 0012](docs/adr/0012-supertonic-como-motor.md) the engine is **Supertonic 3**, a 99 M
+parameter flow-matching model published by Supertone and now archived. Text is read as **Unicode
+characters** (no phonemizer), and the speaker's identity is an **input tensor**, not a weight — so
+there is no converter after the synthesizer. Nothing was trained for this project.
 
-| Graph | Parameters | fp32 | fp16 | Runs in the browser |
-|---|---|---|---|---|
-| `tts.onnx` | 16.4 M | 63.3 MB | 32.3 MB | yes, WebGPU or wasm |
-| `conversor.onnx` | — | 132.3 MB | 66.5 MB | yes |
-| `voz.onnx` (recording → voice vector) | — | 7.5 MB | 3.7 MB | wasm only, it contains a GRU |
-| `speaker_encoder.onnx` | — | 27.4 MB | 14.2 MB | no, it only measures similarity |
+| Graph | fp32 | Runs in the browser |
+|---|---|---|
+| `text_encoder.onnx` | 36.4 MB | yes, WebGPU or wasm |
+| `duration_predictor.onnx` | 3.7 MB | yes |
+| `vector_estimator.onnx` (N steps of flow matching) | 256.5 MB | yes — it is the slow one |
+| `vocoder.onnx` | 101.4 MB | yes |
+| `speaker_encoder.onnx` (WeSpeaker) | 27.4 MB | it measures similarity **and** builds voices |
+
+A voice is `style_ttl` `[1,50,256]` plus `style_dp` `[1,8,16]` — 292 KB of JSON, not a checkpoint.
 
 ## Intended use
 
@@ -34,10 +39,13 @@ gave you permission.
   limit this project asks you to respect.
 - Impersonation, fraud, evading voice-based identity checks, or any output presented as a genuine
   recording of a real person.
-- Commercial use is outside the project's own scope ([ADR 0006](docs/adr/0006-uso-no-comercial-y-xtts-como-maestro.md));
-  the upstream weights are MIT, so the constraint is this project's, not theirs.
-- Languages other than Spanish. The base voice is monolingual and asking it for English produces
-  noise, so the demo does not offer it.
+- **Whatever OpenRAIL-M's use restrictions forbid.** That licence travels with the weights and its
+  restrictions apply to you as much as to us; `LICENSE` is downloaded next to the graphs so it
+  cannot get separated from them. Read it before deploying anything.
+- Commercial use is outside the project's own scope ([ADR 0006](docs/adr/0006-uso-no-comercial-y-xtts-como-maestro.md)).
+  Note this is now **two** constraints, not one: the project's, and the weights'.
+- The engine handles 31 languages, but only Spanish is measured here. The rest are offered
+  untested, and "untested" is the honest word for them.
 
 ## Measured behaviour
 

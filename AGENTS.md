@@ -13,11 +13,12 @@ en PyTorch, exportado a ONNX y ejecutado en el navegador con ONNX Runtime Web.
 Lo de esta sección se EJECUTA, así que no puede pudrirse en silencio: si miente, falla.
 
 ```bash
-uv sync --extra dev --extra export --extra train   # torch cu126 viene del índice fijado en pyproject
-winget install eSpeak-NG.eSpeak-NG                # o apt install espeak-ng; ADR 0004, por referencia
+uv sync --extra dev --extra export --extra voz     # torch cu126 viene del índice fijado en pyproject
+uv sync ... --extra eval          # AÑADE esto para medir: sin él `uv sync` PODA Whisper y jiwer
+winget install eSpeak-NG.eSpeak-NG                # SOLO para tests/test_frontend_paridad.py; el motor no tiene fonemizador (ADR 0012)
 uv run pytest tests -q              # suite rápida: suelo, frontend y paridad Python/JS (necesita node)
 uv run pytest tests/terminado -q    # criterio de terminado del MVP — hoy FALLA, no hay modelo
-cd web && npm ci && npm test        # runtime JS: frontend (espeak-ng WASM) y contrato
+cd web && npm ci && npm test        # runtime JS; npm run typecheck y npm run lint tambien
 gb who --html mapa.html             # el mapa navegable del repo (derivado, no se commitea)
 
 # los modelos, sin corpus y sin entrenar: descarga los pesos publicos y exporta los 4 grafos
@@ -25,7 +26,20 @@ uv run python -m ttspro.export.modelos            # ADR 0009; es el camino de qu
 ./instalar.sh | instalar.bat                      # arranque completo; ./actualizar.sh trae la ultima version y reconstruye modelos solo si hace falta
 arrancar.bat [--lib]                             # Windows: levanta la pagina (o la libreria con su ejemplo) y abre el navegador
 
-# el ciclo del modelo pieza a pieza (ver data/README.md para el manifiesto)
+# el motor (ADR 0012): cuatro grafos ONNX que se DESCARGAN, no se exportan
+uv run python -m ttspro.supertonic.descargar          # 398 MB en models/supertonic/ + contrato.json
+uv run pytest tests/test_supertonic_paridad.py -q     # regla 3 del frontend Unicode, sin espeak
+
+# el voice builder, que Supertone no publico y hay que reconstruir (ADR 0012, decision 6)
+uv run python -m ttspro.supertonic.inversor --audio voz.wav --reconstruida recon.wav
+                                                      # invierte el vocoder: audio -> latente (GPU)
+uv run python -m ttspro.supertonic.puente muestrear --n 4000   # pares (estilo, embedding, latente)
+uv run python -m ttspro.supertonic.puente entrenar --desde ambos  # ridge + PCA, segundos
+uv run python -m ttspro.supertonic.puente clonar --referencia voz.wav --nombre marcos
+uv run python -m ttspro.supertonic.constructor --referencia voz.wav --nombre marcos
+                                                      # la via barata: mezclar las diez voces (0,227)
+
+# el ciclo del modelo pieza a pieza (cadena ANTERIOR al ADR 0012; ver data/README.md)
 uv run python -m ttspro.export.speaker_encoder                 # models/speaker_encoder.onnx (+ .fp16)
 uv run python -m ttspro.data.preparar --manifiesto data/manifests/X.tsv --salida cache/X
 uv run python -m ttspro.train.entrenar --cache cache/X --salida runs/X --batch 16 --fp16

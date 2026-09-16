@@ -14,17 +14,20 @@
     <h1>ttspro desde la consola</h1>
     <p id="estado">cargando modelos…</p>
     <p>
-      <label>audio de referencia (3 s o más): <input id="audio" type="file" accept="audio/*" /></label>
+      <label>importar una voz (.json): <input id="voz" type="file" /></label>
     </p>
     <p>Abre la consola del navegador. <code>tts</code> ya está cargado:</p>
-    <pre><code>await tts.clonar(audio.files[0])          // la voz del fichero elegido arriba
-tts.elegirVoz("cof_02484")                 // o un preset: tts.voces lista los presets
-tts.elegirVoz(null)                        // o la voz base, sin conversor (la rápida)
+    <pre><code>tts.voces                                  // los nombres que hay; una voz son 292 KB
+await tts.elegirVoz("M3")                  // la descarga la primera vez y la deja elegida
+await tts.importar(voz.files[0])           // o un .json construido fuera, del fichero de arriba
 
-tts.ajustes.length_scale = 1.1               // más lento; tau, noise_scale, noise_scale_w, semilla igual
-tts.ajustes.tau = 0.2                          // vale para todo lo que venga después
-const r = await tts.predict("hola a todos, esto sale de la consola", { length_scale: 0.9 })  // o por llamada
-tts.reproducir(r)                          // r.onda, r.sampleRate, r.ms, r.wav()
+tts.ajustes.pasos = 12                     // más pasos de flow: mejor y más lento (8 es la rodilla)
+tts.ajustes.velocidad = 1.2                // por encima de 1 habla más rápido
+tts.ajustes.semilla = 0                    // 0 ES una semilla; undefined es aleatorio
+const r = await tts.predict("hola a todos, esto sale de la consola", { pasos: 4 })  // o por llamada
+await tts.reproducir(r)                    // r.onda, r.sampleRate, r.ms, r.voz, r.wav()
+
+await tts.clonar(fichero)                  // falla a propósito, y dice por qué: ADR 0012
 
 // un stream: cualquier iterable, async iterable o ReadableStream de textos o {usuario, texto}
 for await (const r of tts.predict(mensajes(), { chat: true, reproducir: true })) console.log(r.texto, r.ms)
@@ -37,16 +40,16 @@ for await (const r of tts.predict(desdeWebSocket("ws://localhost:3000/cable"), {
 
       const estado = document.getElementById("estado");
       window.tts = await TTS.cargar({
-        modelos: "/models/",
-        espeak: "/espeak/espeak-ng.wasm",
-        alDescargar: (r, t) => {
-          estado.textContent = `descargando modelos… ${(r / 1e6).toFixed(0)} / ${(t / 1e6).toFixed(0)} MB`;
+        modelos: "/models/supertonic/",
+        alCargar: (c) => {
+          const mb = c.bytes > 0 ? ` ${(c.recibidos / 1e6).toFixed(0)}/${(c.bytes / 1e6).toFixed(0)} MB` : "";
+          estado.textContent = `descargando ${c.grafo} (${c.indice + 1}/${c.total})${mb}`;
         },
       });
-      estado.textContent = `listo · tts ${tts.proveedores.tts} · conversor ${tts.proveedores.conversor} · ${tts.voces.length} voces preset`;
+      estado.textContent = `listo · ${tts.proveedor} · ${tts.sampleRate / 1000} kHz · ${tts.voces.length} voces · hablando con ${tts.voz}`;
 
       // Helpers for the console session above.
-      window.audio = document.getElementById("audio");
+      window.voz = document.getElementById("voz");
       window.mensajes = async function* () {
         const lineas = [
           { usuario: "Pepe_Gamer", texto: "holaaaa q tal todos!!!!" },

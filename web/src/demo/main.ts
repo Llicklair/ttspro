@@ -1,910 +1,970 @@
 /**
- * The test page. Chain (ADR 0007 and 0008): text -> tts.onnx in a fixed base
- * voice -> conversor.onnx in the chosen voice. The voice is either a preset
- * shipped in models/voces.json or one cloned from a recording through voz.onnx.
+ * La página: dos modos sobre un solo motor (ADR 0012).
  *
- * Every number shown is measured in this browser.
+ * Lo que cambió respecto de la página de los cuatro pasos numerados no es el
+ * aspecto, es el modelo mental. Antes había una cadena que el usuario tenía que
+ * entender —una voz base fija, un conversor detrás, y dos conceptos de "voz" que
+ * se elegían en sitios distintos— y la página la reflejaba fielmente, que es
+ * justo por qué era confusa. Con Supertonic la voz es una entrada del modelo, así
+ * que hay UNA lista de voces, eliges una y habla. Lo que quedaba de la cadena
+ * (proveedor, precisión, hardware) se va a Ajustes, porque es de la máquina, no
+ * de la tarea.
  */
 
 import { nombreLegible, normalizarChat } from "../frontend/chat.ts";
-import { configurarEspeak, versionEspeak } from "../frontend/fonemas.ts";
-import { aWav, decodificar, grabarPCM, reproducir } from "../runtime/audio.ts";
+import { normalizar } from "../frontend/normalizar.ts";
+import { IDIOMAS } from "../frontend/unicode.ts";
+import { aWav, grabarPCM, reproducir } from "../runtime/audio.ts";
 import { Cola, type Estadisticas, type Mensaje } from "../runtime/cola.ts";
-import type { Contrato } from "../runtime/contrato.ts";
-import { convertir, vectorVoz } from "../runtime/conversor.ts";
-import { type Hardware, calibrar, describir, detectar, recomendar } from "../runtime/hardware.ts";
-import { type Proveedor, type Sesion, crearSesion, hilos, soportaF16 } from "../runtime/ort.ts";
+import { describir, detectar } from "../runtime/hardware.ts";
+import type { Proveedor } from "../runtime/ort.ts";
+import { Pocket } from "../runtime/pocket.ts";
 import {
-  type MetaPaquete,
-  URL_VOCES,
-  URL_VOCES_PAGES,
-  type VozBase,
-  cargarIndice,
-  cargarPaquete,
-} from "../runtime/paquetes.ts";
-import { sintetizar } from "../runtime/sintetizador.ts";
+  type Estilo,
+  type EstiloJSON,
+  Supertonic,
+  descargarEstilo,
+  leerEstilo,
+} from "../runtime/supertonic.ts";
+import { cambiarVelocidad } from "../runtime/velocidad.ts";
 import { conectarSSE, conectarWebSocket, escucharPostMessage } from "./fuentes.ts";
 import { type MensajeTwitch, conectarTwitch } from "./twitch.ts";
 import { Visor, pintarNivel } from "./visor.ts";
 
-configurarEspeak({
-  locateFile: (f: string) => (f.endsWith(".wasm") ? "/espeak/espeak-ng.wasm" : f),
-});
+const $ = (id: string) => document.getElementById(id) as HTMLElement;
+const $$ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const estado = $("estado");
-const registro = $("registro");
 const log = (msg: string) => {
-  registro.textContent = `${new Date().toLocaleTimeString()}  ${msg}\n${registro.textContent}`;
+  const pre = $("registro");
+  pre.textContent += `${new Date().toLocaleTimeString()}  ${msg}\n`;
+  pre.scrollTop = pre.scrollHeight;
 };
-const pastilla = (id: string, texto: string, marca = "") => {
-  const el = $(`pastilla-${id}`);
+
+const pastilla = (id: string, texto: string, tono = "") => {
+  const el = $(id);
   el.textContent = texto;
-  if (marca) el.dataset.estado = marca;
-  else el.removeAttribute("data-estado");
+  if (tono) el.dataset.tono = tono;
+  else delete el.dataset.tono;
 };
 
-interface Voz {
-  id: string;
+const dato = (id: string, texto: string) => {
+  $(id).textContent = texto;
+};
+
+// ------------------------------------------------------------------ estado
+
+interface Ficha {
   nombre: string;
-  idioma: string;
-  voz: number[];
-}
-interface Voces {
-  espacio: string;
-  /** `embedding_tts` only exists when the base TTS takes a speaker vector. */
-  base: { locutor: string; idioma: string; embedding_tts?: number[]; voz: number[] };
-  voces: Voz[];
+  origen: "fabrica" | "construida" | "clonada";
+  detalle: string;
+  estilo?: Estilo; // se descarga al elegirla, no antes: 292 KB cada una
 }
 
-let contrato: Contrato;
-let voces: Voces | null = null;
-let tts: Sesion | null = null;
-let grafoVoz: Sesion | null = null;
-let grafoConversor: Sesion | null = null;
-let vozDestino: Float32Array | null = null;
-let ultima: { onda: Float32Array; sr: number } | null = null;
-// Base voices: "local" is models/tts.onnx; the rest are packs downloaded on demand
-// (ADR 0011). Each carries its own contract and base-voice vector.
-const bases = new Map<string, VozBase>();
-let baseActual = "local";
-let indicePaquetes: Record<string, MetaPaquete> = {};
-let hardware: Hardware | null = null;
-let precisionCargada: "" | ".fp16" = "";
-let proveedoresCargados: Proveedor[] = ["wasm"];
-const hablanteActual = () => bases.get(baseActual) as VozBase;
-const visor = new Visor($<HTMLCanvasElement>("onda"));
-visor.poner("vacio");
+/** `models/supertonic/contrato.json`, generado leyendo los propios .onnx. */
+interface Contrato {
+  motor: string;
+  version: string;
+  frecuencia_salida_hz: number;
+  voces: string[];
+  grafos: Record<string, { fichero: string; bytes: number }>;
+}
 
-// ---------------------------------------------------------------- models
+/**
+ * Los dos motores, y por que hay dos.
+ *
+ * Pocket clona desde una grabacion en medio segundo (0,413 de similitud, el
+ * mejor numero del proyecto) y pesa 177 MB. Supertonic lee algo mejor (WER 0,008
+ * contra 0,027), sale a 44,1 kHz y habla 31 idiomas, pero **no sabe clonar**: su
+ * encoder de voz no se publico nunca y reconstruirlo no llega — seis intentos en
+ * docs/evidencia.md. Ninguno gana en todo, asi que se elige.
+ */
+type MotorActivo = { tipo: "supertonic"; motor: Supertonic } | { tipo: "pocket"; motor: Pocket };
 
-async function cargarModelos(): Promise<void> {
-  const preferido = ($("proveedor") as HTMLSelectElement).value as Proveedor | "auto";
-  const proveedores: Proveedor[] = preferido === "auto" ? ["webgpu", "wasm"] : [preferido];
-  let precision = ($("precision") as HTMLSelectElement).value;
-  if (precision === "auto") {
-    const f16 = proveedores[0] === "webgpu" && (await soportaF16());
-    precision = f16 ? ".fp16" : "";
-    log(`precisión auto → ${precision || "fp32"} (shader-f16: ${f16})`);
-  }
-  pastilla("modelos", "descargando…", "trabajando");
-  ($("cargar") as HTMLButtonElement).disabled = true;
-  const barra = $("progreso");
-  // One bar for three files: each reports its own bytes, so they are summed.
-  const bytes: Record<string, [number, number]> = {};
-  const progreso = (clave: string) => (recibidos: number, total: number) => {
-    bytes[clave] = [recibidos, total];
-    const suma = Object.values(bytes);
-    const hechos = suma.reduce((a, [r]) => a + r, 0);
-    const todos = suma.reduce((a, [, t]) => a + t, 0);
-    if (todos) barra.style.width = `${Math.min(100, (100 * hechos) / todos).toFixed(1)}%`;
-    estado.textContent = `descargando modelos… ${(hechos / 1e6).toFixed(0)} MB`;
-  };
+let activo: MotorActivo | null = null;
+let contrato: Contrato | null = null;
+
+const tipoElegido = (): "supertonic" | "pocket" =>
+  $$<HTMLSelectElement>("motor").value === "supertonic" ? "supertonic" : "pocket";
+
+const puedeClonar = () => activo?.tipo === "pocket";
+const fichas = new Map<string, Ficha>();
+let vozActual: string | null = null;
+let ultimo: { onda: Float32Array; sampleRate: number } | null = null;
+
+const LOCALES = "ttspro.voces.locales";
+
+/**
+ * De donde salen los cuatro grafos. Hugging Face los sirve con las cabeceras CORS
+ * correctas (la misma razon por la que los paquetes de voz viven alli, ADR 0011),
+ * asi que el navegador puede bajarlos **directamente** y la pagina funciona sin
+ * haber instalado nada: ni Python, ni `descargar`, ni copiar 398 MB a public/.
+ * La revision va fijada porque el repo esta archivado (ADR 0012).
+ */
+const ORIGENES = {
+  local: "/models/supertonic/",
+  huggingface: "https://huggingface.co/supertone-oss-archive/supertonic-3/resolve/main/",
+} as const;
+
+/**
+ * Lo que dice el contrato cuando no hay contrato.
+ *
+ * `contrato.json` lo genera `ttspro.supertonic.descargar` leyendo los propios
+ * .onnx, asi que existe en local y NO existe en Hugging Face, que solo tiene lo
+ * que publico Supertone. Estos son los unicos datos que la pagina necesita de el,
+ * y valen para la revision fijada; si algun dia dejan de valer, el motor falla al
+ * cargar un grafo, que es un fallo ruidoso y no silencioso.
+ */
+const CONTRATO_MINIMO: Contrato = {
+  motor: "supertonic-3",
+  version: "v1.7.3",
+  frecuencia_salida_hz: 44100,
+  voces: ["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"],
+  grafos: {},
+};
+const visor = new Visor($$<HTMLCanvasElement>("onda"));
+
+const origen = () => {
+  const v = $$<HTMLInputElement>("origenModelos").value.trim();
+  return v.endsWith("/") ? v : `${v}/`;
+};
+
+// ------------------------------------------------------------------ modos
+
+const botonesModo = Array.from(document.querySelectorAll<HTMLButtonElement>(".modos button"));
+for (const boton of botonesModo) {
+  boton.addEventListener("click", () => {
+    for (const otro of botonesModo) {
+      const puesto = otro === boton;
+      otro.setAttribute("aria-selected", String(puesto));
+      $(`modo-${otro.dataset.modo}`).hidden = !puesto;
+    }
+  });
+}
+
+$("abrir-ajustes").addEventListener("click", () => $$<HTMLDialogElement>("ajustes").showModal());
+$("cerrar-ajustes").addEventListener("click", () => $$<HTMLDialogElement>("ajustes").close());
+
+// ------------------------------------------------------------------ idiomas
+
+const selectorIdioma = $$<HTMLSelectElement>("idioma");
+for (const codigo of IDIOMAS) {
+  if (codigo === "na") continue; // el comodín del modelo: no es un idioma que ofrecer
+  const o = document.createElement("option");
+  o.value = codigo;
+  o.textContent = codigo;
+  if (codigo === "es") o.selected = true;
+  selectorIdioma.append(o);
+}
+
+// ------------------------------------------------------------------- carga
+
+/**
+ * ¿Este origen sirve de verdad los grafos?
+ *
+ * Se pregunta con `tts.json`, que son 8 KB, antes de comprometerse a 398 MB. Y no
+ * vale mirar el codigo de estado: el servidor de desarrollo de Vite responde
+ * **200 con el index.html** a cualquier ruta que no conoce, asi que hay que abrir
+ * la respuesta y comprobar que es lo que dice ser.
+ */
+async function sirveModelos(raiz: string): Promise<boolean> {
   try {
-    contrato = await (await fetch("/models/contrato.json")).json();
-    voces = await (await fetch("/models/voces.json")).json();
-    const [t, c] = await Promise.all([
-      crearSesion(`/models/tts${precision}.onnx`, proveedores, progreso("tts")),
-      crearSesion(`/models/conversor${precision}.onnx`, proveedores, progreso("conv")),
-    ]);
-    // The voice extractor carries a GRU, which WebGPU has no kernel for: wasm.
-    grafoVoz = await crearSesion(`/models/voz${precision}.onnx`, ["wasm"], progreso("voz"));
-    tts = t;
-    grafoConversor = c;
-    precisionCargada = precision as "" | ".fp16";
-    proveedoresCargados = proveedores;
-    bases.clear();
-    const presets = voces as Voces;
-    bases.set("local", {
-      meta: {
-        clave: "local",
-        nombre: presets.base.locutor,
-        idioma: presets.base.idioma,
-        region: "",
-        calidad: "",
-        licencia: "",
-        parametros_M: 0,
-        MB: { fp32: 0, fp16: 0 },
-        ms_frase_cpu: 0,
-        ficheros: { fp32: "tts.onnx", fp16: "tts.fp16.onnx" },
-      },
-      sesion: t,
-      contrato,
-      vozBase: Float32Array.from(presets.base.voz),
-    });
-    baseActual = "local";
-    // The local voice has a name (since 2026-09-06 it is claude): say it, or the
-    // person downloads "claude" from the list and hears no difference.
-    const opcionLocal = ($("vozBase") as HTMLSelectElement).querySelector('option[value="local"]');
-    if (opcionLocal) opcionLocal.textContent = `local: ${presets.base.locutor}`;
-    ($("vozBase") as HTMLSelectElement).value = "local";
-    barra.style.width = "100%";
-    const mb = ((t.bytes + c.bytes + grafoVoz.bytes) / 1e6).toFixed(1);
-    estado.textContent = "preparando fonemizador y voces…";
-    log(`espeak-ng: ${await versionEspeak()}`);
-    pintarVoces();
-    for (const id of [
-      "fichero",
-      "grabar",
-      "sintetizar",
-      "sinConvertir",
-      "conectar",
-      "enviar",
-      "simular",
-      "calibrar",
-      "descargarVozBase",
-      "descargarTodas",
-    ])
-      ($(id) as HTMLButtonElement).disabled = false;
-    const resumen = `tts ${t.proveedor} · conversor ${c.proveedor} · voz ${grafoVoz.proveedor} · ${mb} MB · ${hilos()} hilo(s) wasm · aislado=${crossOriginIsolated}`;
-    estado.textContent = `listo · ${resumen}`;
-    pastilla("modelos", `${precision || "fp32"} · ${t.proveedor}`, "listo");
-    log(`modelos cargados: ${resumen}`);
-    actualizarQuienHabla();
-  } catch (err) {
-    estado.textContent = `error: ${String(err)}`;
-    pastilla("modelos", "error", "error");
-    log(String(err));
-  } finally {
-    ($("cargar") as HTMLButtonElement).disabled = false;
+    const r = await fetch(`${raiz}onnx/tts.json`);
+    if (!r.ok) return false;
+    const c = (await r.json()) as { ae?: { sample_rate?: number } };
+    return typeof c?.ae?.sample_rate === "number";
+  } catch {
+    return false;
   }
 }
 
-// ---------------------------------------------------------------- voice
+/**
+ * Carga el motor sin que nadie pulse nada.
+ *
+ * Con `respaldo`, si el origen local no tiene los grafos se pasa solo a Hugging
+ * Face. Esa es la promesa de la pagina: abrirla y que hable, sin instalar nada y
+ * sin tener que entender de donde salen 398 MB.
+ */
+// Cambiar de motor mientras uno esta cargando lanzaba DOS cargas y se quedaba la
+// que acabara ultima, que no tiene por que ser la que pediste: medido el
+// 2026-09-16, la pagina acababa en Pocket con las tarjetas de los dos motores
+// mezcladas. Mismo patron que el turno de sintesis: solo la ultima manda.
+let cargaActual = 0;
 
-function pintarVoces(): void {
+async function cargar(respaldo = true): Promise<void> {
+  const mia = ++cargaActual;
+  const boton = $$<HTMLButtonElement>("cargar");
+  boton.disabled = true;
+  const progreso = $("progreso");
+  try {
+    let raiz = origen();
+    if (respaldo && !raiz.startsWith("http") && !(await sirveModelos(raiz))) {
+      log(`${raiz} no tiene los grafos; tirando de Hugging Face`);
+      $("estado").textContent = "no estan en este servidor: bajandolos de Hugging Face…";
+      $$<HTMLInputElement>("origenModelos").value = ORIGENES.huggingface;
+      raiz = ORIGENES.huggingface;
+    }
+    if (activo?.tipo === "pocket") activo.motor.cerrar();
+    activo = null;
+    fichas.clear();
+
+    if (tipoElegido() === "pocket") {
+      // Pocket se trae sus pesos de Hugging Face y los deja en la Cache API: el
+      // `origen` de Supertonic no pinta nada aqui, y por eso no se toca.
+      const pocket = await Pocket.cargar({
+        idioma: "spanish",
+        alCargar: (etapa, recibidos, total) => {
+          progreso.style.width = `${total > 0 ? ((recibidos / total) * 100).toFixed(1) : 0}%`;
+          const mb =
+            total > 0 ? ` — ${(recibidos / 1e6).toFixed(0)} de ${(total / 1e6).toFixed(0)} MB` : "";
+          $("estado").textContent = `descargando ${etapa}${mb}`;
+        },
+      });
+      if (mia !== cargaActual) {
+        pocket.cerrar();
+        log("descartada la carga de pocket: hay otra mas nueva");
+        return;
+      }
+      activo = { tipo: "pocket", motor: pocket };
+      pintarFichas(pocket.voces);
+      // El modelo espanol trae 1 paso de fabrica y admite 4; la pagina arranca en
+      // 4 a proposito, porque es lo mejor que da y quien abre esto quiere oirlo
+      // bien. Lo que el modelo usaria por su cuenta se dice en el registro, no se
+      // impone: imponerlo seria volver al minimo sin avisar.
+      log(
+        `pocket: ${pocket.pasosPorDefecto} paso(s) de fabrica, temperatura ${pocket.temperaturaPorDefecto}`,
+      );
+      dato("e-motor", `pocket · ${pocket.sampleRate / 1000} kHz · clona`);
+      dato("e-proveedor", "worker");
+      $("estado").textContent = `listo: pocket en español, ${pocket.voces.length} voces`;
+      log(`pocket cargado, ${pocket.voces.length} voces`);
+      await elegirVoz(pocket.vozPorDefecto, false);
+    } else {
+      contrato = await leerContrato(raiz);
+      pintarFichas(await listaDeVoces(raiz, contrato.voces));
+
+      const preferidos: Proveedor[] =
+        $$<HTMLSelectElement>("proveedor").value === "auto"
+          ? ["webgpu", "wasm"]
+          : [$$<HTMLSelectElement>("proveedor").value as Proveedor];
+
+      // El progreso se cuenta por grafo, no por bytes totales: asi no depende de
+      // que haya contrato, y sirve igual viniendo de Hugging Face.
+      const st = await Supertonic.cargar(`${raiz}onnx/`, preferidos, (c) => {
+        const dentro = c.bytes > 0 ? c.recibidos / c.bytes : 0;
+        progreso.style.width = `${(((c.indice + dentro) / c.total) * 100).toFixed(1)}%`;
+        const cuanto =
+          c.bytes > 0
+            ? ` — ${(c.recibidos / 1e6).toFixed(0)} de ${(c.bytes / 1e6).toFixed(0)} MB`
+            : "";
+        $("estado").textContent = `descargando ${c.grafo} (${c.indice + 1}/${c.total})${cuanto}`;
+      });
+      if (mia !== cargaActual) {
+        log("descartada la carga de supertonic: hay otra mas nueva");
+        return;
+      }
+      activo = { tipo: "supertonic", motor: st };
+      dato("e-motor", `${contrato.motor} · ${contrato.frecuencia_salida_hz / 1000} kHz`);
+      dato("e-proveedor", st.proveedor);
+      $("estado").textContent = `listo: ${(st.bytes / 1e6).toFixed(0)} MB en ${st.proveedor}`;
+      log(`supertonic cargado en ${st.proveedor}`);
+      await elegirVoz(contrato.voces[0], false);
+    }
+    progreso.style.width = "100%";
+    $$<HTMLButtonElement>("hablar").disabled = false;
+    $$<HTMLButtonElement>("conectar").disabled = false;
+    $$<HTMLButtonElement>("enviar").disabled = false;
+    $$<HTMLButtonElement>("simular").disabled = false;
+    await comprobarPuente();
+    boton.textContent = "recargar";
+  } catch (e) {
+    // El servidor de desarrollo responde con el index.html a lo que no encuentra,
+    // asi que un modelo que falta llega aqui como "Unexpected token '<'". Decirlo
+    // tal cual no ayuda a nadie: lo que hay que decir es que hacer.
+    $("estado").textContent = `no se pudo cargar desde ${origen()}: ${String(e).slice(0, 220)}`;
+    pastilla("p-voces", "sin modelos", "error");
+    log(`ERROR al cargar desde ${origen()}: ${String(e)}`);
+  } finally {
+    if (mia === cargaActual) boton.disabled = false;
+  }
+}
+
+/**
+ * Que voces hay en este origen.
+ *
+ * `voice_styles/indice.json` lo escribe `npm run preparar`, y lo reescribe el
+ * voice builder al publicar una voz nueva: asi una voz construida aparece sola,
+ * sin tocar el contrato ni ninguna lista. Si no existe (Hugging Face no lo
+ * tiene), valen las del contrato.
+ *
+ * Se comprueba la forma, no el codigo de estado: el dev server de Vite responde
+ * 200 con el index.html a lo que no encuentra.
+ */
+async function listaDeVoces(raiz: string, porDefecto: string[]): Promise<string[]> {
+  try {
+    const r = await fetch(`${raiz}voice_styles/indice.json`);
+    if (!r.ok) throw new Error(String(r.status));
+    const lista = (await r.json()) as unknown;
+    if (Array.isArray(lista) && lista.length && lista.every((v) => typeof v === "string")) {
+      log(`indice de voces: ${lista.length}`);
+      return lista as string[];
+    }
+    throw new Error("no es una lista de nombres");
+  } catch {
+    return porDefecto;
+  }
+}
+
+/** El contrato si el origen lo tiene; si no, lo minimo que la pagina necesita. */
+async function leerContrato(raiz: string): Promise<Contrato> {
+  try {
+    const r = await fetch(`${raiz}contrato.json`);
+    if (!r.ok) throw new Error(String(r.status));
+    const c = (await r.json()) as Contrato;
+    const mb = Object.values(c.grafos).reduce((n, g) => n + g.bytes, 0) / 1e6;
+    log(
+      `contrato ${c.motor} ${c.version}, ${Object.keys(c.grafos).length} grafos, ${mb.toFixed(1)} MB`,
+    );
+    return c;
+  } catch {
+    log(`sin contrato.json en ${raiz}: usando el minimo para ${CONTRATO_MINIMO.version}`);
+    return CONTRATO_MINIMO;
+  }
+}
+
+async function cambiarOrigen(url: string): Promise<void> {
+  $$<HTMLInputElement>("origenModelos").value = url;
+  if (activo?.tipo === "pocket") activo.motor.cerrar();
+  activo = null;
+  fichas.clear();
+  $$<HTMLButtonElement>("hablar").disabled = true;
+  log(`origen de los modelos: ${url}`);
+  // Sin respaldo: si alguien pide expresamente un origen, se le dice si falla en
+  // vez de llevarle a otro por detras.
+  await cargar(false);
+}
+
+$("cargar").addEventListener("click", () => void cargar());
+$("motor").addEventListener("change", () => {
+  log(`motor: ${tipoElegido()}`);
+  void cargar();
+});
+// Cambiar de origen recarga solo: dejarlo a medias, con el campo cambiado y el
+// motor viejo en memoria, es un estado que nadie quiere y que miente.
+$("descargarHF").addEventListener("click", () => void cambiarOrigen(ORIGENES.huggingface));
+$("usarLocal").addEventListener("click", () => void cambiarOrigen(ORIGENES.local));
+$("usarHF").addEventListener("click", () => void cambiarOrigen(ORIGENES.huggingface));
+$("origenModelos").addEventListener(
+  "change",
+  () => void cambiarOrigen($$<HTMLInputElement>("origenModelos").value.trim()),
+);
+
+// ------------------------------------------------------------------- voces
+
+/**
+ * Que se escribe debajo del nombre de una voz de fabrica.
+ *
+ * Supertonic **documenta** su convencion — M1 a M5 masculinas, F1 a F5
+ * femeninas —, asi que ahi se puede decir. Pocket no: su manifiesto trae el
+ * idioma de cada voz y nada mas. Deducir el sexo del nombre daba «lola:
+ * masculina», que es lo que pasa por inventarse un dato que no se tiene.
+ */
+function detalleDeFabrica(nombre: string): string {
+  if (activo?.tipo === "pocket") return activo.motor.idiomaDeVoz(nombre) ?? "de fábrica";
+  return /^F\d$/.test(nombre) ? "femenina" : /^M\d$/.test(nombre) ? "masculina" : "de fábrica";
+}
+
+function pintarFichas(deFabrica: string[]): void {
+  for (const nombre of deFabrica) {
+    if (!fichas.has(nombre)) {
+      fichas.set(nombre, { nombre, origen: "fabrica", detalle: detalleDeFabrica(nombre) });
+    }
+  }
+  for (const [nombre, crudo] of Object.entries(locales())) {
+    if (!fichas.has(nombre)) {
+      const meta = crudo.metadata ?? {};
+      fichas.set(nombre, {
+        nombre,
+        origen: meta.construida_por ? "construida" : "clonada",
+        detalle: (meta.source_file as string) ?? "tuya",
+        estilo: leerEstilo(crudo, nombre),
+      });
+    }
+  }
+  render();
+}
+
+function locales(): Record<string, EstiloJSON> {
+  try {
+    return JSON.parse(localStorage.getItem(LOCALES) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+function render(): void {
+  const filtro = $$<HTMLInputElement>("buscar-voz").value.trim().toLowerCase();
   const caja = $("voces");
   caja.textContent = "";
-  if (!voces) {
-    $("infoVoz").textContent = "sin models/voces.json";
-    return;
-  }
-  voces.voces.forEach((v, i) => {
-    const [id, ...resto] = v.nombre.split(" · ");
+  let visibles = 0;
+  for (const ficha of fichas.values()) {
+    if (filtro && !ficha.nombre.toLowerCase().includes(filtro)) continue;
+    visibles++;
     const tarjeta = document.createElement("button");
     tarjeta.className = "voz";
-    tarjeta.type = "button";
     tarjeta.setAttribute("role", "radio");
-    tarjeta.setAttribute("aria-checked", "false");
-    tarjeta.dataset.voz = String(i);
-    const nombre = document.createElement("b");
-    nombre.textContent = id;
-    const detalle = document.createElement("span");
-    detalle.textContent = `${v.idioma} · ${resto.join(" · ") || "voz"}`;
-    tarjeta.append(nombre, detalle);
-    tarjeta.addEventListener("click", () => elegirVoz(i));
-    caja.appendChild(tarjeta);
-  });
-  $("infoVoz").textContent = `${voces.voces.length} presets · voz base ${voces.base.locutor}`;
-}
-
-function marcar(indice: number | null): void {
-  for (const el of Array.from(document.querySelectorAll<HTMLElement>(".voz")))
-    el.setAttribute("aria-checked", String(el.dataset.voz === String(indice)));
-}
-
-function elegirVoz(indice: number): void {
-  if (!voces) return;
-  const v = voces.voces[indice];
-  vozDestino = Float32Array.from(v.voz);
-  marcar(indice);
-  // The base TTS is monolingual: a preset in another language only changes the
-  // timbre, never what language is spoken.
-  if (contrato.idiomas.includes(v.idioma)) ($("idioma") as HTMLSelectElement).value = v.idioma;
-  $("infoVoz").textContent = `preset ${v.nombre}`;
-  pastilla("voz", v.id, "listo");
-  log(`voz: ${v.nombre}`);
-  actualizarQuienHabla();
-}
-
-const srConversor = () => contrato.grafos.voz.frecuencia_entrada_hz ?? 22050;
-
-async function vozDesdeOnda(onda: Float32Array, origen: string): Promise<void> {
-  if (!grafoVoz) return;
-  if (onda.length < srConversor() * 2) {
-    log(`${origen}: solo ${(onda.length / srConversor()).toFixed(1)} s; hacen falta 3 s o más`);
-    pastilla("voz", "muy corta", "error");
-    return;
-  }
-  pastilla("voz", "analizando…", "trabajando");
-  const t0 = performance.now();
-  vozDestino = await vectorVoz(grafoVoz, contrato, onda);
-  marcar(null);
-  $("infoVoz").textContent =
-    `voz clonada de ${origen}: ${(onda.length / srConversor()).toFixed(1)} s de audio → vector en ${(performance.now() - t0).toFixed(0)} ms`;
-  pastilla("voz", "clonada", "listo");
-  log($("infoVoz").textContent ?? "");
-  actualizarQuienHabla();
-}
-
-($("fichero") as HTMLInputElement).addEventListener("change", async (ev) => {
-  const entrada = ev.target as HTMLInputElement;
-  const f = entrada.files?.[0];
-  if (!f) return;
-  // Before this had no try/catch: a file the browser cannot decode (some .m4a,
-  // a video, a corrupt download) failed silently and the button looked dead.
-  pastilla("voz", "leyendo fichero…", "trabajando");
-  try {
-    if (!grafoVoz) throw new Error("carga los modelos antes de elegir un fichero");
-    let onda = await decodificar(await f.arrayBuffer(), srConversor());
-    // A whole podcast is not a reference: 3-10 s is what the scope asks for, and the
-    // voice extractor (a GRU) walks every sample. Keep the first 15 s.
-    const maximo = srConversor() * 15;
-    if (onda.length > maximo) {
-      log(
-        `${f.name}: ${(onda.length / srConversor()).toFixed(0)} s de audio, se usan los primeros 15`,
-      );
-      onda = onda.slice(0, maximo);
+    tarjeta.setAttribute("aria-checked", String(ficha.nombre === vozActual));
+    // Con createElement y textContent, no con innerHTML: el nombre de una voz
+    // clonada lo escribe el usuario, y el de un fichero lo escribe su sistema.
+    const trozo = (clase: string, texto: string) => {
+      const el = document.createElement("span");
+      el.className = clase;
+      el.textContent = texto;
+      return el;
+    };
+    tarjeta.append(trozo("nombre", ficha.nombre), trozo("detalle", ficha.detalle));
+    if (ficha.origen !== "fabrica") {
+      const marcas = document.createElement("span");
+      marcas.className = "marcas";
+      const marca = trozo("marca", ficha.origen);
+      marca.dataset.tipo = ficha.origen;
+      marcas.append(marca);
+      tarjeta.append(marcas);
     }
-    await vozDesdeOnda(onda, f.name);
-  } catch (err) {
-    log(`fichero ${f.name}: ${String(err)}`);
-    pastilla("voz", "no se pudo leer", "error");
-    $("infoVoz").textContent = `no se pudo leer ${f.name}: ${String(err).slice(0, 90)}`;
-  } finally {
-    // so choosing the same file again fires `change` again
-    entrada.value = "";
+    tarjeta.addEventListener("click", () => void elegirVoz(ficha.nombre));
+    caja.append(tarjeta);
   }
-});
+  const propias = [...fichas.values()].filter((f) => f.origen !== "fabrica").length;
+  pastilla(
+    "p-voces",
+    propias
+      ? `${fichas.size - propias} de fábrica · ${propias} tuyas`
+      : `${fichas.size} de fábrica`,
+  );
+  if (!visibles) caja.innerHTML = `<p class="nota">ninguna voz se llama así</p>`;
+}
 
-$("grabar").addEventListener("click", async () => {
-  const boton = $("grabar") as HTMLButtonElement;
-  const medidor = $<HTMLCanvasElement>("nivel");
-  boton.disabled = true;
-  try {
-    const onda = await grabarPCM(6, srConversor(), (s, nivel) => {
-      boton.textContent = `grabando… ${Math.max(0, 6 - s).toFixed(1)} s`;
-      pintarNivel(medidor, nivel);
+$("buscar-voz").addEventListener("input", render);
+
+/**
+ * Elegir una voz la descarga si hace falta y, salvo que se diga lo contrario, la
+ * **dice al momento** con el texto que haya.
+ *
+ * Cambiar de voz sin oirla obliga a un segundo clic para saber si acertaste, y
+ * elegir voz es justo la tarea en la que hay que probar varias. No hace falta
+ * recargar nada del motor: con este modelo la voz es una entrada, asi que basta
+ * con volver a sintetizar.
+ */
+async function elegirVoz(nombre: string, escuchar = true): Promise<void> {
+  const ficha = fichas.get(nombre);
+  if (!ficha) return;
+  // En Pocket una voz es un nombre que el worker ya tiene; en Supertonic es un
+  // fichero de 292 KB que hay que bajar la primera vez.
+  if (activo?.tipo === "supertonic" && !ficha.estilo) {
+    $("estado").textContent = `descargando la voz ${nombre}…`;
+    try {
+      ficha.estilo = await descargarEstilo(`${origen()}voice_styles/${nombre}.json`, nombre);
+    } catch (e) {
+      $("estado").textContent = `no se pudo traer la voz ${nombre}: ${String(e).slice(0, 160)}`;
+      log(`ERROR con la voz ${nombre}: ${String(e)}`);
+      return;
+    }
+    $("estado").textContent = "listo";
+  }
+  vozActual = nombre;
+  dato("e-voz", nombre);
+  render();
+  if (escuchar && activo && $$<HTMLInputElement>("escucharAlElegir").checked) {
+    await hablar();
+  }
+}
+
+// ---------------------------------------------------------------- sintetizar
+
+/** La semilla del campo, donde **0 es una semilla**, no "ninguna".
+ *
+ * `Number(v) || undefined` convertia el 0 en aleatorio, que es justo lo contrario
+ * de lo que dice el campo ("fija el ruido para poder repetir la misma toma") y de
+ * la regla 5. Vacio si significa aleatorio. */
+/** El deslizador de temperatura, donde **0 significa «la del modelo»**.
+ *
+ * Es el unico rango en el que 0 no es un valor util: una temperatura de cero es
+ * un muestreador determinista y el habla sale plana y rota (medido: WER 0,246 a
+ * 0,1 contra 0,027 a 0,5). Asi que el extremo izquierdo se usa para «no tocar»,
+ * y la etiqueta lo dice.
+ */
+function temperaturaActual(): number | undefined {
+  const v = Number($$<HTMLInputElement>("temperatura").value);
+  return v > 0 ? v : undefined;
+}
+
+function semillaActual(): number | undefined {
+  const v = $$<HTMLInputElement>("semilla").value.trim();
+  if (v === "") return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Texto -> onda con el motor que este puesto. Lo unico que sabe de los dos. */
+async function decir(
+  texto: string,
+  ficha: Ficha,
+  opciones: {
+    pasos: number;
+    velocidad: number;
+    semilla?: number;
+    idioma: string;
+    temperatura?: number;
+  },
+): Promise<{ onda: Float32Array; sampleRate: number; ms: number; detalle: string }> {
+  if (!activo) throw new Error("no hay motor cargado");
+  if (activo.tipo === "pocket") {
+    const r = await activo.motor.sintetizar(texto, ficha.nombre, {
+      pasos: opciones.pasos,
+      temperatura: opciones.temperatura,
+      semilla: opciones.semilla,
     });
-    pintarNivel(medidor, 0);
-    await vozDesdeOnda(onda, "micrófono");
-  } catch (err) {
-    log(`micrófono: ${String(err)}`);
-    pastilla("voz", "sin micrófono", "error");
-  } finally {
-    boton.textContent = "grabar 6 s";
-    boton.disabled = false;
+    // Pocket no tiene velocidad: se estira el tiempo despues, sin tocar el tono,
+    // que en una voz clonada es la mitad de lo que la hace reconocible.
+    const onda = cambiarVelocidad(r.onda, opciones.velocidad, r.sampleRate);
+    const rtf = r.ms / 1000 / (onda.length / r.sampleRate);
+    const temp =
+      opciones.temperatura === undefined ? "" : ` · t ${opciones.temperatura.toFixed(2)}`;
+    return {
+      onda,
+      sampleRate: r.sampleRate,
+      ms: r.ms,
+      detalle: `RTF ${rtf.toFixed(2)} · ${opciones.pasos} pasos${temp} · pocket · ${ficha.nombre}`,
+    };
   }
-});
+  if (!ficha.estilo) throw new Error(`la voz ${ficha.nombre} no esta cargada`);
+  const r = await activo.motor.sintetizar(texto, ficha.estilo, opciones);
+  return {
+    onda: r.onda,
+    sampleRate: r.sampleRate,
+    ms: r.ms,
+    detalle: `RTF ${r.rtf.toFixed(2)} · ${r.pasos} pasos · ${ficha.nombre}`,
+  };
+}
 
-// ---------------------------------------------------------------- speech
+// Pulsar tres voces seguidas lanza tres sintesis; solo importa la ultima. ORT no
+// se puede cancelar a mitad, asi que lo que se hace es tirar lo que llega tarde.
+let turno = 0;
 
-async function hablar(pedirConversor: boolean): Promise<void> {
-  if (!tts || !voces) return;
-  // "sintetizar" without a target voice (no preset, nothing cloned) is not an error:
-  // the base voice speaks on its own. A downloaded base voice IS a voice; the
-  // converter only repaints the timbre onto a preset or a clone.
-  const conConversor = pedirConversor && vozDestino !== null;
-  if (pedirConversor && !conConversor) {
-    log(`sin voz destino (preset o clonada): habla la voz base ${hablanteActual().meta.nombre}`);
-  }
-  const botones = ["sintetizar", "sinConvertir"].map((id) => $(id) as HTMLButtonElement);
-  for (const b of botones) b.disabled = true;
-  pastilla("audio", "generando…", "trabajando");
+async function hablar(): Promise<void> {
+  const ficha = vozActual ? fichas.get(vozActual) : null;
+  if (!activo || !ficha) return;
+  const mio = ++turno;
+  const boton = $$<HTMLButtonElement>("hablar");
+  boton.disabled = true;
+  pastilla("p-audio", "sintetizando…", "aviso");
   visor.poner("trabajando");
   try {
-    const semilla = Number(($("semilla") as HTMLInputElement).value);
-    const hablante = hablanteActual();
-    const base = await sintetizar(
-      hablante.sesion,
-      hablante.contrato,
-      ($("texto") as HTMLTextAreaElement).value,
-      hablante.contrato.idiomas[0],
-      baseActual === "local" && voces.base.embedding_tts
-        ? Float32Array.from(voces.base.embedding_tts)
-        : null,
-      {
-        noise_scale: Number(($("noise") as HTMLInputElement).value),
-        noise_scale_w: Number(($("noise_w") as HTMLInputElement).value),
-        length_scale: Number(($("length") as HTMLInputElement).value),
-        semilla,
-      },
-    );
-    let onda = base.onda;
-    let sr = base.sampleRate;
-    let msConv = 0;
-    if (conConversor && grafoConversor && vozDestino) {
-      const r = await convertir(grafoConversor, contrato, base.onda, hablante.vozBase, vozDestino, {
-        tau: Number(($("tau") as HTMLInputElement).value),
-        semilla,
-      });
-      onda = r.onda;
-      sr = r.sampleRate;
-      msConv = r.ms;
+    // El normalizador español va DELANTE del frontend Unicode: Supertonic lee
+    // "3.522" como dígitos y "10:30 h" como puntuación (medido, evidencia
+    // 2026-09-15), y esta pieza ya existía y ya está probada.
+    const crudo = $$<HTMLTextAreaElement>("texto").value;
+    const idioma = selectorIdioma.value;
+    const texto = idioma === "es" ? normalizar(crudo) : crudo;
+    const r = await decir(texto, ficha, {
+      idioma,
+      pasos: Number($$<HTMLInputElement>("pasos").value),
+      velocidad: Number($$<HTMLInputElement>("velocidad").value),
+      temperatura: temperaturaActual(),
+      semilla: semillaActual(),
+    });
+    if (mio !== turno) {
+      log(`descartada la toma de ${ficha.nombre}: ya hay otra voz elegida`);
+      return;
     }
-    ultima = { onda, sr };
-    $("fonemas").textContent = base.fonemas;
-    const segundos = onda.length / sr;
-    const tramoConversor = conConversor
-      ? ` · conversor ${msConv.toFixed(0)} ms`
-      : " · sin convertir";
-    const rtf = ((base.ms_modelo + msConv) / 1000 / segundos).toFixed(3);
-    $("medidas").textContent =
-      `voz base ${hablante.meta.clave === "local" ? hablante.meta.nombre : hablante.meta.clave} · ` +
-      `${base.tokens} tokens · frontend ${base.ms_frontend.toFixed(0)} ms · ` +
-      `tts ${base.ms_modelo.toFixed(0)} ms${tramoConversor} · ${segundos.toFixed(2)} s · RTF ${rtf}`;
-    log($("medidas").textContent ?? "");
-    pastilla("audio", `${segundos.toFixed(1)} s`, "listo");
-    (window as unknown as { __ttspro: unknown }).__ttspro = {
-      muestras: onda.length,
-      sampleRate: sr,
-      ms_modelo: base.ms_modelo,
-      ms_conversor: msConv,
-      ms_frontend: base.ms_frontend,
-      proveedor: tts.proveedor,
-      tokens: base.tokens,
-      convertido: conConversor,
-    };
-    const enlace = $("descargar") as HTMLAnchorElement;
-    enlace.href = URL.createObjectURL(aWav(onda, sr));
-    enlace.download = conConversor ? "ttspro-voz.wav" : "ttspro-base.wav";
+    ultimo = { onda: r.onda, sampleRate: r.sampleRate };
+    visor.mostrar(r.onda, r.sampleRate);
+    visor.poner("listo");
+    const segundos = r.onda.length / r.sampleRate;
+    $("medidas").textContent = `${segundos.toFixed(2)} s · ${r.ms.toFixed(0)} ms · ${r.detalle}`;
+    dato("e-ms", `${r.ms.toFixed(0)} ms`);
+    pastilla("p-audio", "sonando", "ok");
+    const enlace = $$<HTMLAnchorElement>("descargar");
+    enlace.href = URL.createObjectURL(aWav(r.onda, r.sampleRate));
+    enlace.download = `${ficha.nombre}.wav`;
     enlace.hidden = false;
-    visor.mostrar(onda, sr);
-    // Re-enabled BEFORE playback: the audio lasts seconds and there is no reason
-    // to keep the page frozen while it sounds.
-    for (const b of botones) b.disabled = false;
-    await visor.reproducir(reproducir);
-  } catch (err) {
-    log(`síntesis: ${String(err)}`);
-    pastilla("audio", "error", "error");
-    visor.poner("vacio");
+    $$<HTMLButtonElement>("repetir").disabled = false;
+    reproducir(r.onda, r.sampleRate);
+    log(`"${texto.slice(0, 40)}…" en ${r.ms.toFixed(0)} ms · ${r.detalle}`);
+  } catch (e) {
+    pastilla("p-audio", "falló", "error");
+    log(`ERROR al sintetizar: ${String(e)}`);
   } finally {
-    for (const b of botones) b.disabled = false;
+    if (mio === turno) boton.disabled = false;
   }
 }
 
-$("cargar").addEventListener("click", cargarModelos);
-$("sintetizar").addEventListener("click", () => hablar(true));
-$("sinConvertir").addEventListener("click", () => hablar(false));
+$("hablar").addEventListener("click", () => void hablar());
 $("repetir").addEventListener("click", () => {
-  if (ultima) visor.reproducir(reproducir);
+  if (ultimo) reproducir(ultimo.onda, ultimo.sampleRate);
 });
 
-// Theme: the page follows the system unless the visitor says otherwise, and the
-// choice sticks. The waveform reads its colours from CSS, so it repaints too.
-const tema = $("tema") as HTMLSelectElement;
-tema.value = localStorage.getItem("ttspro-tema") ?? "auto";
-const aplicarTema = () => {
-  if (tema.value === "auto") document.documentElement.removeAttribute("data-tema");
-  else document.documentElement.dataset.tema = tema.value;
-  localStorage.setItem("ttspro-tema", tema.value);
-  visor.pintar();
+const etiquetaTemperatura = () => {
+  const v = Number($$<HTMLInputElement>("temperatura").value);
+  $("temperatura_v").textContent = v > 0 ? v.toFixed(2) : "por defecto";
 };
-tema.addEventListener("change", aplicarTema);
-aplicarTema();
+$("temperatura").addEventListener("input", etiquetaTemperatura);
+etiquetaTemperatura();
 
-for (const id of ["noise", "noise_w", "length", "tau"]) {
-  const entrada = $(id) as HTMLInputElement;
-  const etiqueta = $(`${id}_v`);
+for (const id of ["pasos", "velocidad"]) {
+  const entrada = $$<HTMLInputElement>(id);
+  const salida = $(`${id}_v`);
   const pintar = () => {
-    etiqueta.textContent = entrada.value;
+    salida.textContent = entrada.value;
   };
   entrada.addEventListener("input", pintar);
   pintar();
 }
 
-// ---------------------------------------------------------------- chat (ADR 0010)
-//
-// A stream of messages instead of one sentence: chat normalizer -> queue that
-// renders the next message while the current one plays. The voice policy
-// decides whether each message goes through the converter, which on wasm costs
-// ~3 s per message and therefore decides whether the reader keeps up.
+// --------------------------------------------------------------- crear voz
 
-const chatLog = $("chatLog");
-const anotar = (usuario: string, texto: string, nota = "") => {
-  const linea = document.createElement("div");
-  const quien = document.createElement("b");
-  quien.textContent = usuario;
-  linea.append(quien, ` ${texto}`);
-  if (nota) {
-    const n = document.createElement("i");
-    n.textContent = `  · ${nota}`;
-    linea.append(n);
-  }
-  chatLog.prepend(linea);
-  while (chatLog.childElementCount > 60) chatLog.lastElementChild?.remove();
-};
-
-function vozParaUsuario(usuario: string): Float32Array | null {
-  if (!voces || voces.voces.length === 0) return null;
-  let h = 0;
-  for (const c of usuario) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return Float32Array.from(voces.voces[h % voces.voces.length].voz);
+/**
+ * Clonar desde una grabación necesita el puente (ADR 0012, decisión 6), y hoy no
+ * hay ninguno que funcione: los cuatro intentos están medidos en
+ * docs/evidencia.md y el mejor llega a 0,227 sobre un objetivo de 0,55. Así que
+ * este camino sale **apagado** y lo dice, en vez de ofrecer un botón que devuelve
+ * la voz media. Lo que sí funciona es importar un `.json` construido fuera.
+ */
+async function comprobarPuente(): Promise<boolean> {
+  const puede = puedeClonar();
+  pastilla("p-clonar", puede ? "clona desde audio" : "solo .json", puede ? "ok" : "aviso");
+  $$<HTMLButtonElement>("grabar").disabled = !puede;
+  return puede;
 }
 
-async function sintetizarMensaje(m: Mensaje) {
-  if (!tts || !voces) return null;
-  const semilla = Number(($("semilla") as HTMLInputElement).value);
-  const hablante = bases.get(m.vozBase ?? baseActual) ?? hablanteActual();
-  const base = await sintetizar(
-    hablante.sesion,
-    hablante.contrato,
-    m.texto,
-    hablante.contrato.idiomas[0],
-    hablante.meta.clave === "local" && voces.base.embedding_tts
-      ? Float32Array.from(voces.base.embedding_tts)
-      : null,
-    {
-      noise_scale: Number(($("noise") as HTMLInputElement).value),
-      noise_scale_w: Number(($("noise_w") as HTMLInputElement).value),
-      length_scale: Number(($("length") as HTMLInputElement).value),
-      semilla,
-    },
-  );
-  if (!m.voz || !grafoConversor) return { onda: base.onda, sampleRate: base.sampleRate };
-  const r = await convertir(grafoConversor, contrato, base.onda, hablante.vozBase, m.voz, {
-    tau: Number(($("tau") as HTMLInputElement).value),
-    semilla,
-  });
-  return { onda: r.onda, sampleRate: r.sampleRate };
-}
-
-function vozBaseParaUsuario(usuario: string): string | undefined {
-  const claves = [...bases.keys()];
-  if (claves.length < 2) return undefined;
-  let h = 0;
-  for (const c of usuario) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return claves[h % claves.length];
-}
-
-const pintarStats = (s: Estadisticas, evento: string, m?: Mensaje) => {
-  $("colaStats").textContent =
-    `pendientes ${s.pendientes} · leídos ${s.reproducidos} · descartados ` +
-    `${s.descartadosViejos} viejos, ${s.descartadosLlenos} por cola llena, ${s.descartadosRepetidos} repetidos · ` +
-    `espera media ${(s.esperaMediaMs / 1000).toFixed(1)} s · síntesis media ${s.sintesisMediaMs.toFixed(0)} ms · ` +
-    `velocidad ×${s.velocidad.toFixed(2)}`;
-  if (evento === "sonando" && m) anotar(m.usuario ?? "", m.texto, "sonando");
-  else if ((evento === "viejo" || evento === "lleno") && m)
-    anotar(m.usuario ?? "", m.texto, `descartado: ${evento}`);
-  else if (evento.startsWith("error") && m) anotar(m.usuario ?? "", m.texto, evento);
-  if (s.pendientes > 0 || evento === "sonando")
-    pastilla("chat", `${s.pendientes} en cola`, "trabajando");
-  else if (evento === "vacía") pastilla("chat", desconectar ? "escuchando" : "al día", "listo");
-};
-
-// Last spoken chat clip, in seconds: lets a test (and a curious person) check that
-// the sliders of panel 3 really shape what the chat says.
-let ultimaSegundosChat = 0;
-const reproducirChat = (o: { onda: Float32Array; sampleRate: number }) => {
-  ultimaSegundosChat = o.onda.length / o.sampleRate;
-  visor.mostrar(o.onda, o.sampleRate);
-  return visor.reproducir(reproducir);
-};
-let cola = new Cola(sintetizarMensaje, reproducirChat, pintarStats);
-let desconectar: (() => void) | null = null;
-
-/** What the demo does with one chat line, wherever it came from. */
-function recibir(usuario: string, textoBruto: string): void {
-  const maxChars = Number(($("maxChars") as HTMLInputElement).value) || 200;
-  const texto = normalizarChat(textoBruto, maxChars);
-  if (!texto) {
-    anotar(usuario, textoBruto, "nada que leer");
+/**
+ * Clonar desde una grabación. Con Pocket es medio segundo; con Supertonic no se
+ * puede y se dice por qué, en vez de dejar un botón muerto.
+ */
+async function clonar(fichero: File | Blob, nombre: string): Promise<void> {
+  if (!activo || activo.tipo !== "pocket") {
+    pastilla("p-clonar", "no con este motor", "error");
+    $("estado").textContent =
+      "Supertonic no sabe clonar desde una grabación: su encoder de voz nunca se publicó." +
+      " Cambia el motor a Pocket arriba y vuelve a soltar el fichero.";
+    log(`rechazado ${nombre}: el motor activo no clona`);
     return;
   }
-  const politica = ($("politica") as HTMLSelectElement).value;
-  const voz =
-    politica === "elegida" ? vozDestino : politica === "usuario" ? vozParaUsuario(usuario) : null;
-  const vozBase = politica === "baseUsuario" ? vozBaseParaUsuario(usuario) : undefined;
-  const nombre = ($("leerNombre") as HTMLInputElement).checked ? `${nombreLegible(usuario)}: ` : "";
-  const aceptado = cola.encolar({ texto: nombre + texto, usuario, voz, vozBase });
-  if (aceptado)
-    anotar(usuario, texto, texto === textoBruto ? "" : `de: ${textoBruto.slice(0, 60)}`);
+  try {
+    pastilla("p-clonar", "clonando…", "aviso");
+    const t0 = performance.now();
+    const segundos = await activo.motor.clonarFichero(fichero as File, nombre);
+    fichas.set(nombre, {
+      nombre,
+      origen: "clonada",
+      detalle: `${segundos.toFixed(0)} s de voz`,
+      estilo: undefined,
+    });
+    pastilla("p-clonar", "clona desde audio", "ok");
+    log(
+      `voz ${nombre} clonada en ${(performance.now() - t0).toFixed(0)} ms con ${segundos.toFixed(1)} s`,
+    );
+    // Decir cuanto se ha usado: con 2 s la similitud es 0,396 y con 20 es 0,527,
+    // asi que quien da poco tiene que enterarse sin tener que leer la evidencia.
+    if (segundos < 15) {
+      $("estado").textContent =
+        `clonada con ${segundos.toFixed(0)} s. El encoder lee hasta 20 y se nota mucho: con 20 s la similitud sube de 0,40 a 0,53.`;
+    }
+    await elegirVoz(nombre);
+  } catch (e) {
+    pastilla("p-clonar", "falló", "error");
+    $("estado").textContent = `no se pudo clonar de «${nombre}»: ${String(e).slice(0, 180)}`;
+    log(`ERROR al clonar: ${String(e)}`);
+  }
 }
 
-$("enviar").addEventListener("click", () => {
-  const entrada = $("mensaje") as HTMLInputElement;
-  if (entrada.value.trim()) recibir("tú", entrada.value);
+/** Importar una voz `.json`: la de fábrica de cualquier runtime de Supertonic, o
+ * una construida aquí con `constructor` o `ajustador`. Esto sí funciona hoy. */
+async function importar(fichero: File): Promise<void> {
+  const nombre = fichero.name.replace(/\.json$/i, "");
+  try {
+    const estilo = leerEstilo(JSON.parse(await fichero.text()) as EstiloJSON, nombre);
+    const meta = (estilo.metadatos ?? {}) as Record<string, unknown>;
+    fichas.set(nombre, {
+      nombre,
+      origen: meta.construida_por ? "construida" : "clonada",
+      detalle: (meta.source_file as string) ?? "importada",
+      estilo,
+    });
+    guardarLocal(nombre, estilo);
+    await elegirVoz(nombre);
+    log(`voz ${nombre} importada`);
+  } catch (e) {
+    $("estado").textContent = `ese .json no es una voz: ${String(e).slice(0, 200)}`;
+    log(`ERROR al importar ${nombre}: ${String(e)}`);
+  }
+}
+
+function guardarLocal(nombre: string, estilo: Estilo): void {
+  try {
+    const todas = locales();
+    todas[nombre] = {
+      style_ttl: { data: [Array.from(estilo.ttl)], dims: [1, 50, 256], type: "float32" },
+      style_dp: { data: [Array.from(estilo.dp)], dims: [1, 8, 16], type: "float32" },
+      metadata: estilo.metadatos ?? {},
+    };
+    localStorage.setItem(LOCALES, JSON.stringify(todas));
+  } catch (e) {
+    // 292 KB por voz: el cupo de localStorage se llena sobre la quincena.
+    log(`no se pudo guardar la voz (${String(e).slice(0, 80)}); sigue disponible hasta recargar`);
+  }
+}
+
+/**
+ * Un solo sitio donde soltar cosas, y sin `accept`.
+ *
+ * Habia dos entradas de fichero, una filtrada a `.json` y otra a `audio/*`, y en
+ * Windows ese filtro **escondia los audios en el explorador** (depende del mapeo
+ * de tipos MIME del sistema, y con .m4a, .opus o .ogg falla a menudo). Peor: la
+ * de audio salia desactivada, asi que quien queria clonar su voz veia un cuadro
+ * de dialogo vacio o un control muerto y ninguna explicacion.
+ *
+ * Ahora entra cualquier fichero y es el codigo el que decide, y el que dice en
+ * voz alta lo que no puede hacer.
+ */
+async function anadir(f: File): Promise<void> {
+  if (/\.json$/i.test(f.name) || f.type === "application/json") {
+    if (activo?.tipo === "pocket") {
+      $("estado").textContent = `«${f.name}» es una voz de Supertonic y el motor activo es
+        Pocket: sus estilos no se cruzan. Cambia el motor arriba, o suelta una grabación para
+        clonarla aquí.`.replace(/\s+/g, " ");
+      return;
+    }
+    await importar(f);
+    return;
+  }
+  await clonar(f, f.name.replace(/\.[^.]+$/, ""));
+}
+
+$("importar").addEventListener("change", async (e) => {
+  const entrada = e.target as HTMLInputElement;
+  const f = entrada.files?.[0];
+  if (f) await anadir(f);
+  // Vaciarlo permite volver a elegir el MISMO fichero: sin esto, el segundo
+  // intento no dispara `change` y parece que la pagina se ha colgado.
   entrada.value = "";
 });
-$("mensaje").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("enviar").click();
-});
-$("vaciarCola").addEventListener("click", () => cola.vaciar());
-$("maxEdad").addEventListener("change", () => {
-  cola.parar();
-  cola = new Cola(sintetizarMensaje, reproducirChat, pintarStats, {
-    maxEdadMs: Number(($("maxEdad") as HTMLInputElement).value) * 1000,
+
+// Soltar el fichero encima, que es lo que la gente intenta primero.
+const zona = $("soltar");
+for (const evento of ["dragenter", "dragover"]) {
+  zona.addEventListener(evento, (e) => {
+    e.preventDefault();
+    zona.classList.add("encima");
   });
+}
+for (const evento of ["dragleave", "drop"]) {
+  zona.addEventListener(evento, () => zona.classList.remove("encima"));
+}
+zona.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  const f = (e as DragEvent).dataTransfer?.files?.[0];
+  if (f) await anadir(f);
 });
 
-const SIMULACION: Array<[string, string]> = [
-  ["Pepe_Gamer", "holaaaa q tal todos!!!!"],
-  // the same line twice in a row: the queue must refuse the second while the first waits
-  ["Pepe_Gamer", "holaaaa q tal todos!!!!"],
-  ["xXDark_LordXx", "JAJAJAJAJA no me lo creo"],
-  ["Luci", "KEKW KEKW KEKW"],
-  ["mod_ana", "mira esto https://clips.twitch.tv/abc123 brutal"],
-  ["Raúl99", "GG WP EZ"],
-  ["Pepe_Gamer", "xq no juegas al lol?"],
-  ["nerea", "tb me pasa a mi, ntp"],
-  ["Carlos", "pls sube el volumen porfa"],
-  ["Luci", "***spoiler*** el final es una locura"],
-  ["mod_ana", "el murciélago vuela de nooooche"],
-  ["Raúl99", "¿¿¿qué???!!! jajaja"],
-  ["nerea", "cómo se llama la canción de fondo"],
-  ["Carlos", "CÁLLATE YA 😂😂😂"],
-  ["Pepe_Gamer", "siiiiii vamosssss"],
-  ["Luci", "Kappa Kappa PogChamp"],
-  ["mod_ana", "llego tarde, perdón, tenía que ir al médico"],
-  ["Raúl99", "salu2 grax por el stream tqm"],
-  ["nerea", "3,5 euros a las 10:30 en el 2º piso"],
-  ["Carlos", "no no no no no NO"],
-];
-$("simular").addEventListener("click", () => {
-  let i = 0;
-  const paso = () => {
-    if (i >= SIMULACION.length) return;
-    const [usuario, texto] = SIMULACION[i++];
-    recibir(usuario, texto);
-    setTimeout(paso, 150);
-  };
-  paso();
+$("grabar").addEventListener("click", async () => {
+  const boton = $$<HTMLButtonElement>("grabar");
+  boton.disabled = true;
+  try {
+    // 20 s, que es lo que el encoder lee: el boton decia 6 y grababa 8, o sea que
+    // se le daba menos de la mitad de lo que puede usar. 16 kHz basta porque el
+    // encoder remuestrea igual.
+    const onda = await grabarPCM(20, 16000, (s_, nivel) => {
+      pintarNivel($$<HTMLCanvasElement>("nivel"), nivel);
+      pastilla("p-clonar", `grabando… ${s_.toFixed(0)} s`, "aviso");
+    });
+    const wav = aWav(onda, 16000);
+    await clonar(wav, `mi voz ${new Date().toLocaleTimeString()}`);
+  } catch (e) {
+    log(`ERROR al grabar: ${String(e)}`);
+  } finally {
+    boton.disabled = !puedeClonar();
+  }
 });
 
-// The source is whatever hands lines to `recibir`: Twitch itself, or another
-// application that already reads the chat (streex, Rails) over WebSocket /
-// ActionCable, SSE, or postMessage when this page sits in its <iframe>.
-const fuente = $("fuente") as HTMLSelectElement;
-const mostrarCamposDeFuente = () => {
-  for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-fuente]")))
-    el.hidden = !(el.dataset.fuente ?? "").split(" ").includes(fuente.value);
-};
-fuente.addEventListener("change", mostrarCamposDeFuente);
-mostrarCamposDeFuente();
+// -------------------------------------------------------------------- tema
 
-const alEstadoFuente = (estado: string, detalle?: string) => {
-  log(`${fuente.value}: ${estado}${detalle ? ` (${detalle})` : ""}`);
-  $("conectar").textContent =
-    estado === "cerrado" || estado === "error" ? "conectar" : "desconectar";
-  if (estado === "conectado") pastilla("chat", "escuchando", "listo");
-  else if (estado === "conectando") pastilla("chat", "conectando…", "trabajando");
-  else pastilla("chat", estado, estado === "error" ? "error" : "");
-  if (estado === "cerrado" || estado === "error") desconectar = null;
+const aplicarTema = () => {
+  const v = $$<HTMLSelectElement>("tema").value;
+  if (v === "auto") delete document.documentElement.dataset.tema;
+  else document.documentElement.dataset.tema = v;
+  localStorage.setItem("ttspro.tema", v);
+};
+$("tema").addEventListener("change", aplicarTema);
+$$<HTMLSelectElement>("tema").value = localStorage.getItem("ttspro.tema") ?? "auto";
+aplicarTema();
+
+// -------------------------------------------------------------- hardware
+
+void (async () => {
+  const h = await detectar();
+  $("hardware").textContent = describir(h);
+})();
+
+// ------------------------------------------------------------------- chat
+
+const anotar = (usuario: string, texto: string, nota = "") => {
+  const pre = $("chatLog");
+  pre.textContent += `${usuario ? `${usuario}: ` : ""}${texto}${nota ? `   ${nota}` : ""}\n`;
+  pre.scrollTop = pre.scrollHeight;
 };
 
-$("conectar").addEventListener("click", () => {
-  if (desconectar) {
-    desconectar();
-    desconectar = null;
+/** Reparte los usuarios entre las voces que haya, de forma estable. */
+function vozParaUsuario(usuario: string): Ficha | undefined {
+  const lista = [...fichas.values()].filter((f) => f.estilo || f.origen === "fabrica");
+  if (!lista.length) return undefined;
+  let h = 0;
+  for (const c of usuario) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return lista[h % lista.length];
+}
+
+const cola = new Cola(
+  async (m: Mensaje) => {
+    if (!activo) return null;
+    const ficha =
+      $$<HTMLSelectElement>("politica").value === "usuario"
+        ? vozParaUsuario(m.usuario ?? "")
+        : vozActual
+          ? fichas.get(vozActual)
+          : undefined;
+    if (!ficha) return null;
+    if (activo.tipo === "supertonic" && !ficha.estilo) {
+      ficha.estilo = await descargarEstilo(
+        `${origen()}voice_styles/${ficha.nombre}.json`,
+        ficha.nombre,
+      );
+    }
+    $("quien-habla").textContent = `${m.usuario ?? ""} con ${ficha.nombre}`;
+    const r = await decir(m.texto, ficha, {
+      idioma: selectorIdioma.value,
+      pasos: Number($$<HTMLSelectElement>("pasosChat").value),
+      velocidad: Number($$<HTMLInputElement>("velocidad").value),
+      temperatura: temperaturaActual(),
+    });
+    return { onda: r.onda, sampleRate: r.sampleRate };
+  },
+  async (o) => {
+    const fuente = reproducir(o.onda, o.sampleRate);
+    await new Promise<void>((listo) => {
+      fuente.onended = () => listo();
+    });
+  },
+  (s: Estadisticas, evento: string) => pintarCola(s, evento),
+  { maxEdadMs: 30_000 },
+);
+
+function pintarCola(s: Estadisticas, evento: string): void {
+  $("cola-texto").textContent =
+    `${s.pendientes} en cola · ${s.reproducidos} leídos · espera ${(s.esperaMediaMs / 1000).toFixed(1)} s · x${s.velocidad.toFixed(2)}`;
+  ($("cola-barra") as HTMLElement).style.width = `${Math.min(100, s.pendientes * 5)}%`;
+  pastilla("p-chat", s.pendientes ? "leyendo" : "al día", s.pendientes > 12 ? "aviso" : "ok");
+  if (evento === "lleno" || evento === "viejo") log(`cola: ${evento}`);
+}
+
+function recibir(usuario: string, crudo: string): void {
+  const maxChars = Number($$<HTMLInputElement>("maxChars").value) || 200;
+  const texto = normalizarChat(crudo, maxChars);
+  if (!texto) {
+    anotar(usuario, crudo, "(nada que leer)");
     return;
   }
-  const valor = (id: string) => ($(id) as HTMLInputElement).value.trim();
-  const alLinea = (l: { usuario: string; texto: string }) => recibir(l.usuario || "chat", l.texto);
-  switch (fuente.value) {
-    case "twitch": {
-      if (!valor("canal")) return log("chat: escribe el nombre del canal");
-      desconectar = conectarTwitch(valor("canal"), desdeTwitch, alEstadoFuente);
-      break;
-    }
-    case "websocket": {
-      if (!valor("url")) return log("chat: escribe la URL del WebSocket");
-      desconectar = conectarWebSocket(valor("url"), valor("canalCable"), alLinea, alEstadoFuente);
-      break;
-    }
-    case "sse": {
-      if (!valor("url")) return log("chat: escribe la URL del EventSource");
-      desconectar = conectarSSE(valor("url"), alLinea, alEstadoFuente);
-      break;
-    }
-    case "postmessage":
-      desconectar = escucharPostMessage(valor("origen") || "*", alLinea, alEstadoFuente);
-      break;
+  const nombre = $$<HTMLInputElement>("leerNombre").checked ? `${nombreLegible(usuario)}, ` : "";
+  anotar(usuario, texto);
+  cola.encolar({ texto: nombre + texto, usuario });
+}
+
+(window as unknown as { __ttspro_chat: unknown }).__ttspro_chat = { recibir };
+
+$("enviar").addEventListener("click", () => {
+  const caja = $$<HTMLInputElement>("mensaje");
+  if (caja.value.trim()) recibir("tú", caja.value.trim());
+  caja.value = "";
+});
+$("mensaje").addEventListener("keydown", (e) => {
+  if ((e as KeyboardEvent).key === "Enter") $("enviar").click();
+});
+$("vaciarCola").addEventListener("click", () => cola.vaciar());
+$("simular").addEventListener("click", () => {
+  const ejemplos = [
+    "hola a todos!!",
+    "jajajajaja que bueno",
+    "q tal el stream?",
+    "primera vez aqui",
+    "GG",
+    "saludos desde Chile",
+    "pon la otra cancion",
+    "me encanta esta voz",
+  ];
+  for (let i = 0; i < 20; i++) {
+    recibir(`usuario${i % 6}`, `${ejemplos[i % ejemplos.length]} ${i}`);
   }
 });
 
-// Which Twitch lines get read. "Highlight My Message" costs channel points, so
-// "solo destacados" turns the reader into something the viewers pay for with
-// points, which is how a busy chat stays listenable.
-let ignoradosTwitch = 0;
+const mostrarCamposDeFuente = () => {
+  const fuente = $$<HTMLSelectElement>("fuente").value;
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-fuente]"))) {
+    el.hidden = !(el.dataset.fuente as string).split(" ").includes(fuente);
+  }
+};
+$("fuente").addEventListener("change", mostrarCamposDeFuente);
+mostrarCamposDeFuente();
+
+let cerrar: (() => void) | null = null;
+
+$("conectar").addEventListener("click", () => {
+  if (cerrar) {
+    cerrar();
+    cerrar = null;
+    $("conectar").textContent = "conectar";
+    pastilla("p-chat", "apagado");
+    return;
+  }
+  const alEstado = (estado: string, detalle?: string) => {
+    pastilla("p-chat", estado, estado === "conectado" ? "ok" : "aviso");
+    log(`chat: ${estado}${detalle ? ` — ${detalle}` : ""}`);
+  };
+  const fuente = $$<HTMLSelectElement>("fuente").value;
+  const url = $$<HTMLInputElement>("url").value.trim();
+  if (fuente === "twitch") {
+    const canal = $$<HTMLInputElement>("canal").value.trim().toLowerCase();
+    if (!canal) return;
+    cerrar = conectarTwitch(canal, desdeTwitch, alEstado);
+  } else if (fuente === "websocket") {
+    cerrar = conectarWebSocket(
+      url,
+      $$<HTMLInputElement>("canalCable").value.trim(),
+      (l) => recibir(l.usuario, l.texto),
+      alEstado,
+    );
+  } else if (fuente === "sse") {
+    cerrar = conectarSSE(url, (l) => recibir(l.usuario, l.texto), alEstado);
+  } else {
+    cerrar = escucharPostMessage(
+      $$<HTMLInputElement>("origen").value.trim(),
+      (l) => recibir(l.usuario, l.texto),
+      alEstado,
+    );
+  }
+  $("conectar").textContent = "desconectar";
+});
+
 function desdeTwitch(m: MensajeTwitch): void {
-  const filtro = ($("filtroTwitch") as HTMLSelectElement).value;
-  const pasa =
-    filtro === "todos" || m.destacado || (filtro === "recompensas" && m.recompensa !== undefined);
-  if (!pasa) {
-    ignoradosTwitch++;
-    $("infoFiltro").textContent = `ignorados ${ignoradosTwitch}`;
+  const filtro = $$<HTMLSelectElement>("filtroTwitch").value;
+  const destacado = m.destacado || (filtro === "recompensas" && m.recompensa);
+  if (filtro !== "todos" && !destacado) {
+    $("info-filtro").textContent = "filtrando los no destacados";
     return;
   }
   recibir(m.usuario, m.texto);
 }
-$("filtroTwitch").addEventListener("change", () => {
-  ignoradosTwitch = 0;
-  $("infoFiltro").textContent = "";
-});
 
-// For the e2e test and for anyone wiring their own source: push a line in.
-(window as unknown as { __ttspro_chat: unknown }).__ttspro_chat = {
-  recibir,
-  twitch: desdeTwitch,
-  estadisticas: () => cola.estadisticas,
-  ultimaSegundos: () => ultimaSegundosChat,
-  quienHabla: () => $("quienHabla").textContent,
-};
+// ---------------------------------------------------------------- arranque
 
-// ---------------------------------------------------------------- hardware (ADR 0011)
-//
-// Detect on load and say what the rule recommends; "calibrar" measures instead of
-// guessing: one sentence through the TTS and the converter on each candidate.
-
-void (async () => {
-  hardware = await detectar();
-  const regla = recomendar(hardware);
-  $("hardware").textContent =
-    `${describir(hardware)} · recomendado: ${regla.proveedor} ${regla.precision || "fp32"} (${regla.motivo})`;
-  const guardada = localStorage.getItem("ttspro-calibracion");
-  if (guardada) {
-    const c = JSON.parse(guardada) as { proveedor: Proveedor; precision: "" | ".fp16" };
-    ($("proveedor") as HTMLSelectElement).value = c.proveedor;
-    ($("precision") as HTMLSelectElement).value = c.precision;
-    log(`calibración guardada: ${c.proveedor} ${c.precision || "fp32"}`);
-  } else if (($("proveedor") as HTMLSelectElement).value === "auto") {
-    ($("proveedor") as HTMLSelectElement).value = regla.proveedor;
-    ($("precision") as HTMLSelectElement).value = regla.precision;
-  }
-})();
-
-$("calibrar").addEventListener("click", async () => {
-  if (!hardware || !voces) return;
-  const boton = $("calibrar") as HTMLButtonElement;
-  boton.disabled = true;
-  const salida = $("calibracion");
-  salida.hidden = false;
-  salida.textContent = "calibrando…";
-  const candidatos: Array<[Proveedor, "" | ".fp16"]> = hardware.webgpu
-    ? hardware.f16
-      ? [
-          ["webgpu", ".fp16"],
-          ["webgpu", ""],
-          ["wasm", ""],
-        ]
-      : [
-          ["webgpu", ""],
-          ["wasm", ""],
-        ]
-    : [["wasm", ""]];
-  const frase = "Hola a todos, bienvenidos al directo de hoy.";
-  const filas: string[] = [];
-  const pinta = () => {
-    salida.textContent = filas.join("\n");
-  };
-  try {
-    const tts = await calibrar(
-      (p) => `/models/tts${p}.onnx`,
-      async (s) => (await sintetizar(s, contrato, frase, contrato.idiomas[0], null, {})).onda,
-      candidatos,
-      (m) => {
-        filas.push(
-          `tts ${m.proveedor} ${m.precision || "fp32"}: ${m.ms === null ? m.error : `${m.ms.toFixed(0)} ms`}`,
-        );
-        pinta();
-      },
-    );
-    const baseOnda = (
-      await sintetizar(
-        hablanteActual().sesion,
-        hablanteActual().contrato,
-        frase,
-        contrato.idiomas[0],
-        null,
-        {},
-      )
-    ).onda;
-    const origen = hablanteActual().vozBase;
-    const destino = Float32Array.from(voces.voces[0]?.voz ?? voces.base.voz);
-    const conv = await calibrar(
-      (p) => `/models/conversor${p}.onnx`,
-      async (s) => (await convertir(s, contrato, baseOnda, origen, destino, {})).onda,
-      candidatos,
-      (m) => {
-        filas.push(
-          `conversor ${m.proveedor} ${m.precision || "fp32"}: ${m.ms === null ? m.error : `${m.ms.toFixed(0)} ms`}`,
-        );
-        pinta();
-      },
-    );
-    const mejor = conv.mejor ?? tts.mejor;
-    if (mejor) {
-      filas.push(
-        `→ mejor: ${mejor.proveedor} ${mejor.precision || "fp32"} (recarga los modelos para aplicarlo)`,
-      );
-      ($("proveedor") as HTMLSelectElement).value = mejor.proveedor;
-      ($("precision") as HTMLSelectElement).value = mejor.precision;
-      localStorage.setItem(
-        "ttspro-calibracion",
-        JSON.stringify({ proveedor: mejor.proveedor, precision: mejor.precision }),
-      );
-    }
-    pinta();
-    log(`calibración: ${filas.join(" · ")}`);
-  } catch (err) {
-    salida.textContent = `calibración: ${String(err)}`;
-  } finally {
-    boton.disabled = false;
-  }
-});
-
-// ---------------------------------------------------------------- base voice packs (ADR 0011)
-
-const selectorBase = $("vozBase") as HTMLSelectElement;
-// Where the packs come from, in order: `?voces=<url>` (the e2e serves a local
-// folder), what the visitor typed last time, the project's default. Any static
-// host with CORS works: a Hugging Face repo is
-// `https://huggingface.co/<usuario>/<repo>/resolve/main/`.
-const origenVoces = $("origenVoces") as HTMLInputElement;
-let urlVoces =
-  new URLSearchParams(location.search).get("voces") ??
-  localStorage.getItem("ttspro-voces") ??
-  URL_VOCES;
-origenVoces.value = urlVoces;
-
-// Only the LAST origin asked for gets to paint: a slow failure from a previous
-// origin must not overwrite the index of the current one.
-let peticionIndice = 0;
-async function pintarIndice(): Promise<void> {
-  const mia = ++peticionIndice;
-  const elegida = selectorBase.value;
-  for (const o of Array.from(selectorBase.options)) if (o.value !== "local") o.remove();
-  indicePaquetes = {};
-  let indice: Record<string, MetaPaquete>;
-  try {
-    indice = await cargarIndice(urlVoces);
-  } catch (err) {
-    if (mia !== peticionIndice) return;
-    $("infoVozBase").textContent =
-      `sin índice de voces en ${urlVoces} (${String(err).slice(0, 60)})`;
-    return;
-  }
-  if (mia !== peticionIndice) return;
-  indicePaquetes = indice;
-  for (const m of Object.values(indicePaquetes)) {
-    const o = document.createElement("option");
-    o.value = m.clave;
-    o.textContent = `${m.nombre} · ${m.calidad} · ${m.MB.fp16} MB`;
-    selectorBase.appendChild(o);
-  }
-  if (elegida in indicePaquetes) selectorBase.value = elegida;
-  $("infoVozBase").textContent = `${Object.keys(indicePaquetes).length} voces base descargables`;
-}
-void pintarIndice();
-function cambiarOrigen(url: string): void {
-  const nueva = url.trim().replace(/\/?$/, "/");
-  // the input fires `change` again on blur when its value was set by code: same origin, nothing to do
-  if (nueva === urlVoces) return;
-  urlVoces = nueva;
-  origenVoces.value = urlVoces;
-  localStorage.setItem("ttspro-voces", urlVoces);
-  log(`origen de voces: ${urlVoces}`);
-  void pintarIndice();
-}
-origenVoces.addEventListener("change", () => cambiarOrigen(origenVoces.value));
-// One click instead of a URL: a Hugging Face repo is `<usuario>/<repo>` and the
-// files hang from `resolve/main/`; GitHub Pages is the project's default.
-$("usarHF").addEventListener("click", () => {
-  const repo = ($("repoHF") as HTMLInputElement).value
-    .trim()
-    .replace(/^https?:\/\/huggingface\.co\//, "")
-    .replace(/\/+$/, "");
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
-    log("repo de Hugging Face: escribe usuario/nombre");
-    return;
-  }
-  cambiarOrigen(`https://huggingface.co/${repo}/resolve/main/`);
-});
-$("usarPages").addEventListener("click", () => cambiarOrigen(URL_VOCES_PAGES));
-
-async function descargarBase(clave: string): Promise<void> {
-  if (bases.has(clave)) return;
-  const barra = $("progreso");
-  const info = $("infoVozBase");
-  const mb = indicePaquetes[clave]?.MB[precisionCargada === ".fp16" ? "fp16" : "fp32"];
-  // The person is looking at THIS panel, not at panel 1: say what is happening here.
-  // A 114 MB pack takes two minutes on a slow line and looked dead without this.
-  info.textContent = `descargando ${clave}${mb ? ` (${mb} MB)` : ""}…`;
-  pastilla("modelos", `descargando ${clave}…`, "trabajando");
-  const t0 = performance.now();
-  const voz = await cargarPaquete(
-    urlVoces,
-    clave,
-    contrato,
-    precisionCargada,
-    proveedoresCargados,
-    (r, t) => {
-      if (t) barra.style.width = `${Math.min(100, (100 * r) / t).toFixed(1)}%`;
-      const seg = (performance.now() - t0) / 1000;
-      const ritmo = seg > 0.5 ? ` · ${(r / 1e6 / seg).toFixed(1)} MB/s` : "";
-      info.textContent = `descargando ${clave}: ${(r / 1e6).toFixed(0)}${t ? ` / ${(t / 1e6).toFixed(0)}` : ""} MB${ritmo}`;
-      if (t && r >= t) info.textContent = `abriendo ${clave} en ${proveedoresCargados[0]}…`;
-    },
-  );
-  bases.set(clave, voz);
-  pastilla("modelos", `${precisionCargada || "fp32"} · ${voz.sesion.proveedor}`, "listo");
-  log(
-    `voz base ${clave}: ${(voz.sesion.bytes / 1e6).toFixed(1)} MB en ${voz.sesion.ms_carga.toFixed(0)} ms, ${voz.sesion.proveedor}`,
-  );
-}
-
-// Choosing a base voice IS using it: download if needed, then make it current.
-// (Marcos picked claude in the list and the chat kept speaking with the old one:
-// the list only marked a candidate and a second button did the real thing.)
-selectorBase.addEventListener("change", () => void usarVozBase(selectorBase.value));
-$("descargarVozBase").addEventListener("click", () => void usarVozBase(selectorBase.value));
-
-async function usarVozBase(clave: string): Promise<void> {
-  if (!tts) {
-    $("infoVozBase").textContent = "carga los modelos (panel 1) antes de elegir una voz base";
-    return;
-  }
-  const boton = $("descargarVozBase") as HTMLButtonElement;
-  boton.disabled = true;
-  try {
-    await descargarBase(clave);
-    baseActual = clave;
-    $("infoVozBase").textContent =
-      `voz base: ${hablanteActual().meta.nombre} · pulsa «sintetizar» o «solo voz base»`;
-    actualizarQuienHabla();
-  } catch (err) {
-    log(`voz base ${clave}: ${String(err)}`);
-    $("infoVozBase").textContent = `error con ${clave}: ${String(err).slice(0, 120)}`;
-    pastilla("modelos", "error", "error");
-  } finally {
-    boton.disabled = false;
-  }
-}
-
-$("descargarTodas").addEventListener("click", async () => {
-  if (!tts) return;
-  const boton = $("descargarTodas") as HTMLButtonElement;
-  boton.disabled = true;
-  try {
-    for (const clave of Object.keys(indicePaquetes)) await descargarBase(clave);
-    $("infoVozBase").textContent = `${bases.size} voces base cargadas`;
-  } catch (err) {
-    log(`voces base: ${String(err)}`);
-  } finally {
-    boton.disabled = false;
-  }
-});
-
-// ---------------------------------------------------------------- who speaks in the chat
-//
-// Two different "voices" live on this page: the BASE voice (the model that talks)
-// and the TARGET voice (a preset or a clone the converter paints on top). The chat
-// panel says, in one line, what its policy will actually do with what is chosen.
-function actualizarQuienHabla(): void {
-  const politica = ($("politica") as HTMLSelectElement).value;
-  const base = bases.get(baseActual)?.meta.nombre ?? "local";
-  const destino = $("infoVoz").textContent?.replace(/^preset /, "") ?? "";
-  const lineas: Record<string, string> = {
-    base: `hablará la voz base «${base}», sin conversor`,
-    elegida: vozDestino
-      ? `hablará «${base}» y el conversor la pintará como «${destino}» (~3 s por mensaje en wasm)`
-      : `sin preset ni voz clonada: hablará la voz base «${base}» tal cual`,
-    baseUsuario:
-      bases.size > 1
-        ? `cada usuario con una de las ${bases.size} voces base cargadas, sin conversor`
-        : "solo hay una voz base cargada: descarga más en el panel 2 para repartir",
-    usuario: `cada usuario con un preset distinto, pintado por el conversor sobre «${base}»`,
-  };
-  $("quienHabla").textContent = lineas[politica] ?? "";
-}
-$("politica").addEventListener("change", actualizarQuienHabla);
+pintarFichas([]);
+log("página lista; cargando el motor sola");
+// Sin botones: la página se abre y habla. Esa es toda la instalación.
+void cargar();

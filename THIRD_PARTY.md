@@ -1,17 +1,24 @@
 # Third-party components
 
-Everything this project ships, downloads or links, and under what terms. Weights are **ported**,
-not trained here: the tensors come from the projects below and are re-expressed on this repo's own
-modules (`ttspro.export.piper`, `ttspro.model.conversor`), so their licences travel with them.
+Everything this project ships, downloads or links, and under what terms. No weight in here was
+trained here.
+
+**Read this first.** Since [ADR 0012](docs/adr/0012-supertonic-como-motor.md) the engine's weights
+are **OpenRAIL-M**, not MIT. OpenRAIL-M is an open licence with **use-based restrictions** — an
+appendix of things the model may not be used for — so "the code is MIT" no longer describes what
+this project distributes as a whole. The code still is; the weights are not.
 
 ## Weights
 
 | Artifact | Source | Licence | Ships to the browser |
 |---|---|---|---|
-| `models/tts.onnx` — base voice | [`es_MX-claude-high`](https://huggingface.co/rhasspy/piper-voices) (Piper) | MIT; its dataset is Apache-2.0 | yes |
+| `models/supertonic/onnx/*.onnx` — **the engine**, four graphs, 398 MB | [`supertone-oss-archive/supertonic-3`](https://huggingface.co/supertone-oss-archive/supertonic-3), revision `aafc6e32` | **OpenRAIL-M** (use restrictions) | yes |
+| `models/supertonic/voice_styles/*.json` — 10 voices | same repo | **OpenRAIL-M** | yes |
+| `models/supertonic/puente.bin` — the voice builder's matrix | fitted here from the engine's own output | derived from OpenRAIL-M weights; treat as OpenRAIL-M | yes |
+| `models/tts.onnx` — base voice (**cadena anterior**) | [`es_MX-claude-high`](https://huggingface.co/rhasspy/piper-voices) (Piper) | MIT; its dataset is Apache-2.0 | no longer |
 | voice packs on [`Llicklair/ttspro-voces`](https://huggingface.co/Llicklair/ttspro-voces) — 8 base voices | Piper voices ported | MIT; datasets CC0 / Apache-2.0 per voice, see each MODEL_CARD in `rhasspy/piper-voices` | on demand |
-| `models/conversor.onnx`, `models/voz.onnx` — tone colour | [`myshell-ai/OpenVoiceV2`](https://huggingface.co/myshell-ai/OpenVoiceV2) | MIT | yes |
-| `models/speaker_encoder.onnx` — similarity metric | [`Wespeaker/wespeaker-voxceleb-resnet34-LM`](https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM) | CC BY 4.0 | no, it only measures |
+| `models/conversor.onnx`, `models/voz.onnx` — tone colour (**cadena anterior**) | [`myshell-ai/OpenVoiceV2`](https://huggingface.co/myshell-ai/OpenVoiceV2) | MIT | no longer |
+| `models/speaker_encoder.onnx` — similarity metric **and** the voice builder's input | [`Wespeaker/wespeaker-voxceleb-resnet34-LM`](https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM) | CC BY 4.0 | yes, since ADR 0012 it also builds voices |
 | `models/voces.json` — 24 preset voices | 256-d vectors measured over VCTK and OpenSLR es | see below | yes |
 
 `voces.json` holds no audio: each preset is a 256-float vector produced by the OpenVoice reference
@@ -25,14 +32,33 @@ the code's licence.
 
 | Component | Licence | Note |
 |---|---|---|
-| [espeak-ng](https://github.com/espeak-ng/espeak-ng), via the [`espeak-ng`](https://www.npmjs.com/package/espeak-ng) npm WASM build | **GPL-3.0-or-later** | the phonemizer, on both sides of the contract |
+| [pocket-tts-onnx](https://github.com/thewh1teagle/pocket-tts-onnx) | CC BY 4.0 | the browser runtime for the engine that **can** clone |
+| [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) weights (Kyutai) | CC BY 4.0 | 177 MB, fetched at runtime and cached in the browser |
+| [espeak-ng](https://github.com/espeak-ng/espeak-ng) | **GPL-3.0-or-later** | ADR 0012 removed it as the phonemizer, but `pocket-tts-onnx` depends on it and a build **distributes** its 18.5 MB wasm — see below |
+| [supertonic-py](https://github.com/supertone-oss-archive/supertonic-py) | MIT | the reference implementation the engine is ported from (archived 2026-09-09) |
+| [onnx2torch](https://github.com/ENOT-AutoDL/onnx2torch) | Apache-2.0 | voice builder only, never in the synthesis path (rule 7) |
 | [ONNX Runtime Web](https://onnxruntime.ai/) | MIT | the browser runtime |
 | PyTorch, ONNX, numpy, soundfile | BSD/MIT/Apache-2.0 | export and measurement only |
 
-**espeak-ng is GPL-3.0-or-later and the browser app loads it.** A build of `web/` distributes that
-WASM module, so anyone redistributing the built site takes on GPLv3 obligations for it. This is the
-single fact that decides what licence the repo itself can carry, and it is the open question in
-[ADR 0009](docs/adr/0009-publicacion-en-github.md).
+**The GPL problem came back, by a side door.** ADR 0012 removed espeak-ng as the phonemizer and
+with it the GPL obligation. Then the Pocket TTS engine arrived, and its browser runtime depends on
+espeak-ng — only for Latin words inside Hebrew, which Spanish never triggers, but Vite bundles the
+18.5 MB wasm anyway and **a deployed build distributes it**. The obligation attaches to
+distribution, not to execution, so it is back. Ways out, in order of honesty: exclude the wasm from
+the build and let the Hebrew path fail loudly, or carry the GPL notice. Not decided yet.
+
+**The rest of the old GPL story, for the record.** Until 2026-09-15 a build of `web/`
+distributed the espeak-ng WASM module, and anyone redistributing the built site took on GPLv3
+obligations for it — the single fact that decided what licence the repo could carry
+([ADR 0009](docs/adr/0009-publicacion-en-github.md)). The engine has no phonemizer, so that is
+over.
+
+What is not over: a deployed build now distributes **OpenRAIL-M weights**. That licence is not
+copyleft and does not reach the code, but it does carry use restrictions that follow the weights
+to whoever downloads them, and the `LICENSE` file is copied next to the graphs so it cannot be
+separated from them. The repo itself stays MIT and still ships no weights
+([ADR 0009](docs/adr/0009-publicacion-en-github.md) is unchanged on that point); what changed is
+what a *hosted* build hands to a visitor.
 
 ## Reference audio in this repo
 

@@ -1,0 +1,141 @@
+/**
+ * La librería, desde una página cualquiera: `import { TTS } from "./ttspro.js"`.
+ *
+ * Lo que Marcos pidió en su día — abrir un HTML, importar ttspro y hablar desde
+ * la consola — pero contra el motor de ADR 0012. Se ejercita el **bundle
+ * construido** en `dist/lib`, no las fuentes, servido por `scripts/servir.mjs`
+ * con COOP/COEP, que es la situación real de quien la empotra en su sitio.
+ *
+ * Sustituye a `demo.spec.ts`, que apuntaba a la cadena anterior: sus nueve tests
+ * probaban paquetes de voz de Piper, el conversor y `tau`, que ya no existen.
+ */
+
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { expect, test } from "@playwright/test";
+
+const AQUI = dirname(fileURLToPath(import.meta.url));
+const BUNDLE = resolve(AQUI, "../dist/lib/ttspro.js");
+const MODELOS = resolve(AQUI, "../public/models/supertonic/onnx/vector_estimator.onnx");
+
+// @ts-expect-error JS plano y sin declaración: es el mismo servidor que `npm run servir`
+import { servir } from "../scripts/servir.mjs";
+
+test("librería: elegir voz, importar un .json, predict de texto y de stream", async ({ page }) => {
+  test.skip(!existsSync(BUNDLE), "corre `npm run build:lib` primero");
+  test.skip(!existsSync(MODELOS), "corre `ttspro.supertonic.descargar` y `npm run preparar`");
+  test.setTimeout(900_000);
+
+  const servidor = (await servir(0)) as { address: () => { port: number }; close: () => void };
+  const base = `http://127.0.0.1:${servidor.address().port}`;
+  try {
+    const errores: string[] = [];
+    page.on("pageerror", (e) => errores.push(e.message));
+    await page.goto(`${base}/`);
+    await page.waitForFunction(() => Boolean((window as unknown as { tts?: unknown }).tts), null, {
+      timeout: 600_000,
+    });
+
+    const medido = await page.evaluate(async () => {
+      type R = {
+        texto: string;
+        onda: Float32Array;
+        sampleRate: number;
+        ms: number;
+        voz: string;
+        wav: () => Blob;
+      };
+      const t = (
+        window as unknown as {
+          tts: {
+            voces: string[];
+            voz: string | null;
+            idiomas: string[];
+            sampleRate: number;
+            proveedor: string;
+            ajustes: { pasos: number; semilla?: number };
+            elegirVoz: (n: string) => Promise<string>;
+            importar: (o: unknown, n?: string) => Promise<string>;
+            clonar: (f: unknown) => Promise<never>;
+            predict: (e: unknown, o?: unknown) => Promise<R> & AsyncIterable<R>;
+          };
+        }
+      ).tts;
+
+      // Pocos pasos y semilla fija: esto mira que la cadena funcione, no cuánto tarda.
+      t.ajustes.pasos = 2;
+      t.ajustes.semilla = 1234;
+
+      await t.elegirVoz("F1");
+      const f1 = await t.predict("una frase para comparar las voces");
+      await t.elegirVoz("M1");
+      const m1 = await t.predict("una frase para comparar las voces");
+
+      // Importar un .json: se coge una voz servida y entra con otro nombre.
+      const crudo = await (await fetch("/models/supertonic/voice_styles/M5.json")).json();
+      const importada = await t.importar(crudo, "mi-voz");
+      const suya = await t.predict("y esta la dice la voz importada");
+
+      // Clonar desde grabación tiene que fallar, y diciendo por qué.
+      let motivo = "";
+      try {
+        await t.clonar(new Blob([new Uint8Array([1, 2, 3])]));
+      } catch (e) {
+        motivo = String(e);
+      }
+
+      // Un stream: se sintetiza por delante y sale en orden.
+      const stream: string[] = [];
+      for await (const r of t.predict(["hola que tal", "KEKW", "segunda linea"], { chat: true })) {
+        stream.push(r.texto);
+      }
+
+      const resumen = (r: R) => ({
+        segundos: r.onda.length / r.sampleRate,
+        voz: r.voz,
+        wavBytes: r.wav().size,
+        suma: r.onda.reduce((a, b) => a + Math.abs(b), 0),
+      });
+      return {
+        voces: t.voces.length,
+        idiomas: t.idiomas.length,
+        sampleRate: t.sampleRate,
+        proveedor: t.proveedor,
+        importada,
+        vozActual: t.voz,
+        f1: resumen(f1),
+        m1: resumen(m1),
+        suya: resumen(suya),
+        motivo,
+        stream,
+      };
+    });
+
+    console.log(JSON.stringify(medido, null, 1));
+    expect(medido.voces).toBeGreaterThanOrEqual(10);
+    expect(medido.idiomas).toBe(31);
+    expect(medido.sampleRate).toBe(44100);
+    expect(medido.f1.voz).toBe("F1");
+    expect(medido.m1.voz).toBe("M1");
+    expect(medido.f1.segundos).toBeGreaterThan(0.5);
+    // Misma frase, mismos pasos, misma semilla: lo único distinto es el estilo.
+    expect(medido.m1.suma).not.toBe(medido.f1.suma);
+    expect(medido.f1.wavBytes).toBeGreaterThan(44);
+
+    expect(medido.importada).toBe("mi-voz");
+    expect(medido.vozActual).toBe("mi-voz");
+    expect(medido.suya.voz).toBe("mi-voz");
+
+    // El fallo de clonar tiene que explicarse, no solo fallar.
+    expect(medido.motivo).toContain("no está disponible");
+    expect(medido.motivo).toContain("importar");
+
+    // "KEKW" -> "jajaja" por el normalizador de chat; las tres salen y en orden.
+    expect(medido.stream).toEqual(["hola que tal", "jajaja", "segunda linea"]);
+
+    expect(errores, `errores de JS: ${errores.join(" | ")}`).toEqual([]);
+  } finally {
+    servidor.close();
+  }
+});

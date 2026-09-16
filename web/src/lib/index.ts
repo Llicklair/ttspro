@@ -2,99 +2,89 @@
  * ttspro as a library: one object, imported from any HTML page.
  *
  *   import { TTS } from "./ttspro.js";
- *   const tts = await TTS.cargar({ modelos: "/models/", espeak: "/espeak/espeak-ng.wasm" });
- *   await tts.clonar(fileInput.files[0]);            // a recording -> the voice to use
+ *   const tts = await TTS.cargar({ modelos: "/models/supertonic/" });
+ *   tts.voces;                                       // ["F1", …, "M5"]
+ *   await tts.elegirVoz("M3");
  *   const r = await tts.predict("hola a todos");     // -> { onda, sampleRate, ms, wav() }
- *   tts.reproducir(r);
- *   for await (const r of tts.predict(streamDeMensajes, { reproducir: true })) { ... }
+ *   await tts.reproducir(r);
+ *   for await (const r of tts.predict(stream, { chat: true, reproducir: true })) { … }
  *
  * `predict` takes a string and returns one result, or takes a stream (an
  * AsyncIterable, a ReadableStream, an array, or a plain Iterable of strings or
  * `{ usuario, texto }`) and returns an AsyncIterable of results in order,
- * synthesized ahead of playback through the same queue the demo uses. Chat
- * lines go through the chat normalizer when `chat: true`.
+ * synthesized ahead of playback through the same queue the page uses. Chat lines
+ * go through the chat normalizer when `chat: true`.
  *
- * Everything runs in the page: no server. The page must be served over HTTP
- * (fetch does not work from file://) and, for multithreaded wasm, with the
- * COOP/COEP headers — `scripts/servir.mjs` does exactly that.
+ * **Lo que cambió con ADR 0012, si venías de la versión anterior.** El motor es
+ * Supertonic 3 y la voz es una *entrada* del modelo, así que:
+ *
+ *   - se fue `espeak`: no hay fonemizador, el frontend es Unicode;
+ *   - se fue `precision`: no hay variantes fp16;
+ *   - se fueron `vocesBase`, `cargarVozBase` y `elegirVozBase`: ya no hay voz base
+ *     contra voz destino, hay **una** lista de voces;
+ *   - se fueron `tau`, `noise_scale` y `length_scale`, y entran `pasos`,
+ *     `velocidad` y `semilla`;
+ *   - `clonar()` sigue existiendo y **falla a propósito**, con el motivo: el
+ *     encoder que convierte un audio en voz no se publicó nunca y reconstruirlo
+ *     no llega (seis medidas en docs/evidencia.md). Lo que sí funciona es
+ *     `importar()` un `.json` construido fuera.
+ *
+ * Todo corre en la página: sin servidor. La página tiene que venir por HTTP
+ * (fetch no funciona desde file://) y, para wasm multihilo, con las cabeceras
+ * COOP/COEP — `scripts/servir.mjs` hace exactamente eso.
  */
 
 import { nombreLegible, normalizarChat } from "../frontend/chat.ts";
-import { configurarEspeak } from "../frontend/fonemas.ts";
-import {
-  aWav,
-  decodificar,
-  ponerVolumen,
-  reproducir as reproducirOnda,
-  volumen,
-} from "../runtime/audio.ts";
+import { normalizar } from "../frontend/normalizar.ts";
+import { IDIOMAS } from "../frontend/unicode.ts";
+import { aWav, ponerVolumen, reproducir as reproducirOnda, volumen } from "../runtime/audio.ts";
 import { Cola, type Estadisticas, type Mensaje } from "../runtime/cola.ts";
-import type { Contrato } from "../runtime/contrato.ts";
-import { convertir, vectorVoz } from "../runtime/conversor.ts";
+import { type Hardware, type Recomendacion, detectar, recomendar } from "../runtime/hardware.ts";
+import type { Proveedor } from "../runtime/ort.ts";
 import {
-  type Hardware,
-  type Medida,
-  type Recomendacion,
-  calibrar as calibrarGrafo,
-  detectar,
-  recomendar,
-} from "../runtime/hardware.ts";
-import {
-  type AlDescargar,
-  type Proveedor,
-  type Sesion,
-  crearSesion,
-  soportaF16,
-} from "../runtime/ort.ts";
-import {
-  type MetaPaquete,
-  URL_VOCES,
-  type VozBase,
-  cargarIndice,
-  cargarPaquete,
-} from "../runtime/paquetes.ts";
-import { type Opciones as OpcionesSintesis, sintetizar } from "../runtime/sintetizador.ts";
+  type Cargando,
+  type Estilo,
+  type EstiloJSON,
+  Supertonic,
+  descargarEstilo,
+  leerEstilo,
+} from "../runtime/supertonic.ts";
 
 export interface OpcionesCarga {
-  /** Folder with contrato.json, voces.json and the .onnx graphs. Default "/models/". */
+  /** Dónde viven los grafos y las voces. Por defecto `/models/supertonic/`. */
   modelos?: string;
-  /** URL of espeak-ng.wasm. Default "/espeak/espeak-ng.wasm". */
-  espeak?: string;
-  /** "auto" tries WebGPU then wasm. Default "auto". */
+  /** `auto` prueba webgpu y cae a wasm. */
   proveedor?: Proveedor | "auto";
-  /** "" for fp32, ".fp16" for fp16, "auto" picks fp16 only on WebGPU with shader-f16. */
-  precision?: "" | ".fp16" | "auto";
-  /** Download progress over all files. */
-  alDescargar?: AlDescargar;
-  /**
-   * Where the voice packs live (indice.json + <clave>.json + <clave>.tts*.onnx).
-   * Default: the project's GitHub release. `null` disables packs.
-   */
-  vocesBase?: string | null;
+  /** Progreso de la descarga, grafo a grafo. */
+  alCargar?: (c: Cargando) => void;
+  /** Idioma por defecto de `predict`. Uno de los 31 del motor. */
+  idioma?: string;
+  /** Qué voz queda elegida al cargar. Por defecto, la primera del origen. */
+  voz?: string;
 }
 
-export interface Voz {
-  id: string;
-  nombre: string;
+export interface Ajustes {
+  /** Pasos de flow matching: más es mejor y más lento. 8 es la rodilla. */
+  pasos: number;
+  /** Velocidad del habla; por encima de 1 habla más rápido. */
+  velocidad: number;
+  /** Fija el ruido para repetir una toma. `undefined` es aleatorio; **0 es una semilla**. */
+  semilla?: number;
+  /** Idioma por defecto. */
   idioma: string;
-  voz: number[];
 }
 
-export interface OpcionesPredict extends OpcionesSintesis {
-  /** Voice vector or preset id for this call; default the voice chosen with `elegirVoz`/`clonar`. */
-  voz?: Float32Array | string | null;
-  /** How much of the base audio the converter keeps. Default 0.3. */
-  tau?: number;
-  /** Pass the text through the chat normalizer (links, emotes, "jajaja", …). Default false. */
+export interface OpcionesPredict extends Partial<Ajustes> {
+  /** Qué voz dice esto: un nombre ya cargado, o la elegida si se omite. */
+  voz?: string;
+  /** Pasa el texto por el normalizador de chat (risas, emotes, enlaces). */
   chat?: boolean;
-  /** Streams only: play each result as it is ready, back to back. Default false. */
+  /** En un stream, reproduce cada resultado en orden según sale. */
   reproducir?: boolean;
-  /** Streams only: prefix "Nombre: " when the item carries a user. Default true. */
+  /** Antepone el nombre de quien habla. Por defecto sí. */
   leerNombre?: boolean;
-  /** Streams only: drop items that waited longer than this. Default 30 000. */
+  /** Descarta lo que lleve más de esto esperando en la cola. */
   maxEdadMs?: number;
-  /** Which base voice speaks: a pack key from `vocesBase`, or "local". Default the current one. */
-  vozBase?: string;
 }
 
 export interface Resultado {
@@ -102,288 +92,144 @@ export interface Resultado {
   usuario?: string;
   onda: Float32Array;
   sampleRate: number;
-  /** ms of synthesis, converter included. */
   ms: number;
-  fonemas: string;
-  /** The same audio as a WAV blob, for download or for an <audio> element. */
+  voz: string;
   wav(): Blob;
 }
 
 export type Entrada = string | { usuario?: string; texto: string };
 export type Fuente =
-  | Iterable<Entrada>
   | AsyncIterable<Entrada>
+  | Iterable<Entrada>
   | ReadableStream<Entrada | Uint8Array>;
 
-interface Voces {
-  base: { locutor: string; idioma: string; embedding_tts?: number[]; voz: number[] };
-  voces: Voz[];
-}
-
 export class TTS {
-  /** Preset voices shipped in voces.json. */
-  readonly voces: Voz[];
-  /** The voice `predict` uses when none is given: a vector, or null for the base voice. */
-  vozActual: Float32Array | null = null;
-  /** Provider each graph actually ran on. */
-  readonly proveedores: { tts: Proveedor; conversor: Proveedor; voz: Proveedor };
-  /** Base voices available for download (packs), by key. Empty when offline or disabled. */
-  readonly vocesBase: Record<string, MetaPaquete> = {};
-  /** Key of the base voice that speaks by default: "local" or a loaded pack. */
-  vozBaseActual = "local";
-  /**
-   * Defaults for every `predict` from now on: `tts.ajustes.tau = 0.2`,
-   * `tts.ajustes.length_scale = 1.1`… A per-call option still wins. Same knobs
-   * as the page's sliders: noise_scale (timbre variation, 0.667), noise_scale_w
-   * (duration variation, 0.5), length_scale (speed, >1 slower), tau (how much of
-   * the base audio the converter keeps, 0.3), semilla.
-   */
-  ajustes: OpcionesSintesis & { tau?: number } = {};
-  /** What `detectar()` saw on this machine, and the rule's recommendation. */
-  readonly hardware: Hardware;
-  readonly recomendacion: Recomendacion;
-
-  private readonly bases = new Map<string, VozBase>();
-  private readonly cargando = new Map<string, Promise<VozBase>>();
-
   private constructor(
-    private readonly contrato: Contrato,
-    private readonly presets: Voces,
-    private readonly sesionTts: Sesion,
-    private readonly sesionConversor: Sesion,
-    private readonly sesionVoz: Sesion,
-    private readonly rutas: {
-      base: string;
-      precision: "" | ".fp16";
-      proveedores: Proveedor[];
-      vocesBase: string | null;
-    },
-    hardware: Hardware,
-  ) {
-    this.voces = presets.voces;
-    this.proveedores = {
-      tts: sesionTts.proveedor,
-      conversor: sesionConversor.proveedor,
-      voz: sesionVoz.proveedor,
-    };
-    this.hardware = hardware;
-    this.recomendacion = recomendar(hardware);
-    this.bases.set("local", {
-      meta: {
-        clave: "local",
-        nombre: presets.base.locutor,
-        idioma: presets.base.idioma,
-        region: "",
-        calidad: "",
-        licencia: "",
-        parametros_M: 0,
-        MB: { fp32: 0, fp16: 0 },
-        ms_frase_cpu: 0,
-        ficheros: { fp32: "tts.onnx", fp16: "tts.fp16.onnx" },
-      },
-      sesion: sesionTts,
-      contrato,
-      vozBase: Float32Array.from(presets.base.voz),
-    });
-  }
+    private readonly motor: Supertonic,
+    private readonly raiz: string,
+    readonly voces: string[],
+    readonly proveedor: Proveedor,
+    readonly hardware: Hardware,
+    readonly recomendacion: Recomendacion,
+    readonly ajustes: Ajustes,
+  ) {}
 
-  /** What this machine can run, without loading anything. */
+  private readonly estilos = new Map<string, Estilo>();
+  private vozActual: string | null = null;
+
   static hardware(): Promise<Hardware> {
     return detectar();
   }
 
-  /** The rule's recommendation for this machine, without loading anything. */
   static async recomendar(): Promise<Recomendacion> {
     return recomendar(await detectar());
   }
 
   static async cargar(opciones: OpcionesCarga = {}): Promise<TTS> {
-    const base = (opciones.modelos ?? "/models/").replace(/\/?$/, "/");
-    const espeak = opciones.espeak ?? "/espeak/espeak-ng.wasm";
-    configurarEspeak({ locateFile: (f: string) => (f.endsWith(".wasm") ? espeak : f) });
-    const hardware = await detectar();
-    const regla = recomendar(hardware);
-    const preferido = opciones.proveedor ?? "auto";
-    const proveedores: Proveedor[] =
-      preferido === "auto"
-        ? regla.proveedor === "webgpu"
-          ? ["webgpu", "wasm"]
-          : ["wasm"]
-        : [preferido];
-    let precision = opciones.precision ?? "auto";
-    if (precision === "auto") {
-      precision = proveedores[0] === "webgpu" && (await soportaF16()) ? ".fp16" : "";
-    }
-    const bytes: Record<string, [number, number]> = {};
-    const progreso = (clave: string) => (r: number, t: number) => {
-      bytes[clave] = [r, t];
-      const todos = Object.values(bytes);
-      opciones.alDescargar?.(
-        todos.reduce((a, [x]) => a + x, 0),
-        todos.reduce((a, [, y]) => a + y, 0),
-      );
-    };
-    const [contrato, voces] = await Promise.all([
-      fetch(`${base}contrato.json`).then((r) => r.json() as Promise<Contrato>),
-      fetch(`${base}voces.json`).then((r) => r.json() as Promise<Voces>),
-    ]);
-    const [tts, conversor, voz] = await Promise.all([
-      crearSesion(`${base}tts${precision}.onnx`, proveedores, progreso("tts")),
-      crearSesion(`${base}conversor${precision}.onnx`, proveedores, progreso("conversor")),
-      // the voice extractor carries a GRU, which WebGPU has no kernel for
-      crearSesion(`${base}voz${precision}.onnx`, ["wasm"], progreso("voz")),
-    ]);
-    const vocesBase = opciones.vocesBase === undefined ? URL_VOCES : opciones.vocesBase;
-    const salida = new TTS(
-      contrato,
-      voces,
-      tts,
-      conversor,
-      voz,
-      { base, precision, proveedores, vocesBase },
-      hardware,
-    );
-    if (vocesBase) {
-      try {
-        Object.assign(salida.vocesBase, await cargarIndice(vocesBase));
-      } catch {
-        // offline, or no packs published: the local base voice still works
-      }
-    }
-    return salida;
+    const raiz = (opciones.modelos ?? "/models/supertonic/").replace(/\/?$/, "/");
+    const hw = await detectar();
+    const rec = recomendar(hw);
+    const preferidos: Proveedor[] =
+      !opciones.proveedor || opciones.proveedor === "auto"
+        ? ["webgpu", "wasm"]
+        : [opciones.proveedor];
+
+    const voces = await listaDeVoces(raiz);
+    const motor = await Supertonic.cargar(`${raiz}onnx/`, preferidos, opciones.alCargar);
+    const tts = new TTS(motor, raiz, voces, motor.proveedor, hw, rec, {
+      pasos: 8,
+      velocidad: 1.05,
+      idioma: opciones.idioma ?? "es",
+    });
+    await tts.elegirVoz(opciones.voz ?? voces[0]);
+    return tts;
   }
 
-  /** Download a base voice pack (once) and open its graph. Returns its meta. */
-  async cargarVozBase(clave: string, alDescargar?: AlDescargar): Promise<MetaPaquete> {
-    const hecha = this.bases.get(clave);
-    if (hecha) return hecha.meta;
-    if (!this.rutas.vocesBase) throw new Error("los paquetes de voz están desactivados");
-    let pendiente = this.cargando.get(clave);
-    if (!pendiente) {
-      pendiente = cargarPaquete(
-        this.rutas.vocesBase,
-        clave,
-        this.contrato,
-        this.rutas.precision,
-        this.rutas.proveedores,
-        alDescargar,
-      );
-      this.cargando.set(clave, pendiente);
-    }
-    const voz = await pendiente;
-    this.bases.set(clave, voz);
-    this.cargando.delete(clave);
-    return voz.meta;
-  }
-
-  /** Make a (loaded) base voice the default speaker. */
-  elegirVozBase(clave: string): void {
-    if (!this.bases.has(clave))
-      throw new Error(`voz base ${clave} no cargada: cargarVozBase antes`);
-    this.vozBaseActual = clave;
-  }
-
-  /** Keys of the base voices loaded and ready. */
-  get vocesBaseCargadas(): string[] {
-    return [...this.bases.keys()];
-  }
-
-  /**
-   * Measure, on this machine, how long ONE sentence takes on each candidate
-   * provider/precision, for the TTS and (optionally) the converter, and return
-   * the fastest. Slow (it opens sessions) and honest (it runs them).
-   */
-  async calibrar(
-    opciones: { conversor?: boolean; alProgresar?: (grafo: string, m: Medida) => void } = {},
-  ): Promise<{ tts: Medida[]; conversor: Medida[]; mejor: Medida | null }> {
-    const candidatos: Array<[Proveedor, "" | ".fp16"]> = this.hardware.webgpu
-      ? this.hardware.f16
-        ? [
-            ["webgpu", ".fp16"],
-            ["webgpu", ""],
-            ["wasm", ""],
-          ]
-        : [
-            ["webgpu", ""],
-            ["wasm", ""],
-          ]
-      : [["wasm", ""]];
-    const frase = "Hola a todos, bienvenidos al directo de hoy.";
-    const idioma = this.contrato.idiomas[0];
-    const tts = await calibrarGrafo(
-      (p) => `${this.rutas.base}tts${p}.onnx`,
-      async (s) => (await sintetizar(s, this.contrato, frase, idioma, null, {})).onda,
-      candidatos,
-      (m) => opciones.alProgresar?.("tts", m),
-    );
-    let conversor = { medidas: [] as Medida[], mejor: null as Medida | null };
-    if (opciones.conversor ?? true) {
-      const base = await sintetizar(this.sesionTts, this.contrato, frase, idioma, null, {});
-      const origen = Float32Array.from(this.presets.base.voz);
-      const destino = Float32Array.from(this.presets.voces[0]?.voz ?? this.presets.base.voz);
-      conversor = await calibrarGrafo(
-        (p) => `${this.rutas.base}conversor${p}.onnx`,
-        async (s) => (await convertir(s, this.contrato, base.onda, origen, destino, {})).onda,
-        candidatos,
-        (m) => opciones.alProgresar?.("conversor", m),
-      );
-    }
-    // the converter dominates when it runs; otherwise the TTS decides
-    const mejor = conversor.mejor ?? tts.mejor;
-    return { tts: tts.medidas, conversor: conversor.medidas, mejor };
-  }
-
-  /** Languages the base voice speaks. */
   get idiomas(): string[] {
-    return this.contrato.idiomas;
+    return IDIOMAS.filter((i) => i !== "na");
   }
 
-  /** Master volume for `reproducir`/`leer`, 0..1. Applies to what plays from now on. */
+  get sampleRate(): number {
+    return this.motor.sampleRate;
+  }
+
   get volumen(): number {
     return volumen();
   }
+
   set volumen(v: number) {
     ponerVolumen(v);
   }
 
-  /** Sample rate of every result. */
-  get sampleRate(): number {
-    return this.contrato.grafos.voz.frecuencia_entrada_hz ?? 22050;
+  /** Qué voz habla ahora. */
+  get voz(): string | null {
+    return this.vozActual;
   }
 
-  /** Pick a preset by id, a raw vector, or null for the base voice. */
-  elegirVoz(voz: string | Float32Array | null): Float32Array | null {
-    this.vozActual = this.resolverVoz(voz);
-    return this.vozActual;
+  /** Elige una voz, descargándola la primera vez. 292 KB cada una. */
+  async elegirVoz(nombre: string): Promise<string> {
+    if (!this.estilos.has(nombre)) {
+      this.estilos.set(
+        nombre,
+        await descargarEstilo(`${this.raiz}voice_styles/${nombre}.json`, nombre),
+      );
+      if (!this.voces.includes(nombre)) this.voces.push(nombre);
+    }
+    this.vozActual = nombre;
+    return nombre;
   }
 
   /**
-   * A recording -> the voice to use. Accepts a File/Blob (any format the browser
-   * decodes), an ArrayBuffer of an audio file, or raw samples with their rate.
-   * Three seconds or more. Returns the 256-d vector and makes it the current voice.
+   * Añade una voz desde un `.json` de estilo: una de fábrica de cualquier
+   * runtime de Supertonic, o una construida con `ttspro.supertonic.constructor`.
    */
-  async clonar(
-    audio: Blob | ArrayBuffer | Float32Array,
-    sampleRate?: number,
-  ): Promise<Float32Array> {
-    let onda: Float32Array;
-    if (audio instanceof Float32Array) {
-      if (!sampleRate) throw new Error("clonar: raw samples need their sampleRate");
-      onda =
-        sampleRate === this.sampleRate
-          ? audio
-          : await remuestrear(audio, sampleRate, this.sampleRate);
-    } else {
-      const datos = audio instanceof Blob ? await audio.arrayBuffer() : audio;
-      onda = await decodificar(datos, this.sampleRate);
+  async importar(origen: File | Blob | EstiloJSON, nombre?: string): Promise<string> {
+    const crudo =
+      origen instanceof Blob ? ((await origen.text().then(JSON.parse)) as EstiloJSON) : origen;
+    const id =
+      nombre ??
+      (origen instanceof File
+        ? origen.name.replace(/\.json$/i, "")
+        : `voz${this.voces.length + 1}`);
+    this.estilos.set(id, leerEstilo(crudo, id));
+    if (!this.voces.includes(id)) this.voces.push(id);
+    this.vozActual = id;
+    return id;
+  }
+
+  /**
+   * Clonar desde una grabación. **No funciona, y falla diciendo por qué.**
+   *
+   * Supertone no publicó el encoder que convierte un audio en `style_ttl`, y
+   * reconstruirlo no llega: seis intentos medidos en docs/evidencia.md, el mejor
+   * 0,227 sobre un objetivo de 0,55, y el definitivo falla hasta reconstruyendo
+   * una voz de fábrica desde su propio audio. Un método que devuelve la voz media
+   * en silencio es peor que uno que no existe, así que este avisa.
+   */
+  async clonar(_fichero: File | Blob): Promise<never> {
+    throw new Error(
+      "clonar() desde una grabación no está disponible: el encoder de voz no se publicó" +
+        " nunca (ADR 0012). Construye la voz fuera con `uv run python -m" +
+        " ttspro.supertonic.constructor --referencia voz.wav --nombre x` e impórtala" +
+        " con tts.importar(json).",
+    );
+  }
+
+  /** Mide una frase en cada proveedor disponible y devuelve los ms. */
+  async calibrar(frase = "Una frase corta para medir."): Promise<Record<string, number>> {
+    const medidas: Record<string, number> = {};
+    for (const proveedor of ["webgpu", "wasm"] as Proveedor[]) {
+      try {
+        const otro = await Supertonic.cargar(`${this.raiz}onnx/`, [proveedor]);
+        const estilo = this.estiloActual();
+        const t0 = performance.now();
+        await otro.sintetizar(frase, estilo, { ...this.ajustes });
+        medidas[proveedor] = performance.now() - t0;
+      } catch {
+        // Ese proveedor no está en esta máquina: no es un error, es un dato.
+      }
     }
-    if (onda.length < this.sampleRate * 2) {
-      throw new Error(
-        `clonar: ${(onda.length / this.sampleRate).toFixed(1)} s of audio; 3 s or more needed`,
-      );
-    }
-    this.vozActual = await vectorVoz(this.sesionVoz, this.contrato, onda);
-    return this.vozActual;
+    return medidas;
   }
 
   /** One text -> one result. A stream of texts -> results in order. */
@@ -414,13 +260,15 @@ export class TTS {
 
   // ---------------------------------------------------------------- internals
 
-  private resolverVoz(voz: string | Float32Array | null | undefined): Float32Array | null {
-    if (voz === undefined) return this.vozActual;
-    if (voz === null) return null;
-    if (voz instanceof Float32Array) return voz;
-    const preset = this.presets.voces.find((v) => v.id === voz);
-    if (!preset) throw new Error(`no hay ninguna voz preset con id ${voz}`);
-    return Float32Array.from(preset.voz);
+  private estiloActual(nombre?: string): Estilo {
+    const id = nombre ?? this.vozActual;
+    const estilo = id ? this.estilos.get(id) : undefined;
+    if (!estilo) {
+      throw new Error(
+        `no hay ninguna voz cargada con el nombre ${id}; usa await tts.elegirVoz(nombre)`,
+      );
+    }
+    return estilo;
   }
 
   private async uno(
@@ -428,47 +276,31 @@ export class TTS {
     usuario: string | undefined,
     porLlamada: OpcionesPredict,
   ): Promise<Resultado> {
-    const opciones: OpcionesPredict = { ...this.ajustes, ...porLlamada };
-    let dicho = opciones.chat ? normalizarChat(texto) : texto;
+    const o = { ...this.ajustes, ...porLlamada };
+    if (o.voz && !this.estilos.has(o.voz)) await this.elegirVoz(o.voz);
+    const estilo = this.estiloActual(o.voz);
+
+    let dicho = porLlamada.chat ? normalizarChat(texto) : texto;
     if (!dicho.trim()) throw new Error("predict: nothing readable in the text");
-    if (usuario && (opciones.leerNombre ?? true)) dicho = `${nombreLegible(usuario)}: ${dicho}`;
-    const t0 = performance.now();
-    const clave = opciones.vozBase ?? this.vozBaseActual;
-    if (!this.bases.has(clave)) await this.cargarVozBase(clave);
-    const hablante = this.bases.get(clave) as VozBase;
-    const base = await sintetizar(
-      hablante.sesion,
-      hablante.contrato,
-      dicho,
-      hablante.contrato.idiomas[0],
-      clave === "local" && this.presets.base.embedding_tts
-        ? Float32Array.from(this.presets.base.embedding_tts)
-        : null,
-      opciones,
-    );
-    let onda = base.onda;
-    let sampleRate = base.sampleRate;
-    const voz = this.resolverVoz(opciones.voz);
-    if (voz) {
-      const c = await convertir(
-        this.sesionConversor,
-        this.contrato,
-        base.onda,
-        hablante.vozBase,
-        voz,
-        { tau: opciones.tau, semilla: opciones.semilla },
-      );
-      onda = c.onda;
-      sampleRate = c.sampleRate;
-    }
+    if (usuario && (porLlamada.leerNombre ?? true)) dicho = `${nombreLegible(usuario)}: ${dicho}`;
+    // El normalizador español va delante del frontend Unicode: el motor lee
+    // "3.522" como dígitos, y esta pieza ya existía y ya está probada.
+    const listo = o.idioma === "es" ? normalizar(dicho) : dicho;
+
+    const r = await this.motor.sintetizar(listo, estilo, {
+      idioma: o.idioma,
+      pasos: o.pasos,
+      velocidad: o.velocidad,
+      semilla: o.semilla,
+    });
     return {
       texto: dicho,
       usuario,
-      onda,
-      sampleRate,
-      ms: performance.now() - t0,
-      fonemas: base.fonemas,
-      wav: () => aWav(onda, sampleRate),
+      onda: r.onda,
+      sampleRate: r.sampleRate,
+      ms: r.ms,
+      voz: estilo.nombre,
+      wav: () => aWav(r.onda, r.sampleRate),
     };
   }
 
@@ -533,6 +365,46 @@ export class TTS {
   }
 }
 
+/**
+ * Qué voces hay en este origen. `voice_styles/indice.json` lo escribe
+ * `npm run preparar` y lo reescribe el voice builder al publicar una voz, así que
+ * una voz nueva aparece sola. Si no existe, valen las del contrato; y si tampoco,
+ * las diez de fábrica.
+ *
+ * Se comprueba la forma, no el código de estado: el servidor de desarrollo de
+ * Vite responde 200 con el index.html a lo que no encuentra.
+ */
+async function listaDeVoces(raiz: string): Promise<string[]> {
+  const lista = async (url: string, campo?: string): Promise<string[] | null> => {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      const d = (await r.json()) as unknown;
+      const v = campo ? (d as Record<string, unknown>)[campo] : d;
+      return Array.isArray(v) && v.length && v.every((x) => typeof x === "string")
+        ? (v as string[])
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  return (
+    (await lista(`${raiz}voice_styles/indice.json`)) ??
+    (await lista(`${raiz}contrato.json`, "voces")) ?? [
+      "F1",
+      "F2",
+      "F3",
+      "F4",
+      "F5",
+      "M1",
+      "M2",
+      "M3",
+      "M4",
+      "M5",
+    ]
+  );
+}
+
 /** Any of the accepted stream shapes -> one async iteration of items. */
 async function* iterar(fuente: Fuente): AsyncIterable<Entrada> {
   if (fuente instanceof ReadableStream) {
@@ -558,16 +430,4 @@ async function* iterar(fuente: Fuente): AsyncIterable<Entrada> {
     return;
   }
   for (const x of fuente as Iterable<Entrada>) yield x;
-}
-
-async function remuestrear(onda: Float32Array, de: number, a: number): Promise<Float32Array> {
-  const ctx = new OfflineAudioContext(1, Math.ceil((onda.length * a) / de), a);
-  const buffer = ctx.createBuffer(1, onda.length, de);
-  // a fresh copy: the samples may sit on a SharedArrayBuffer, which copyToChannel refuses
-  buffer.copyToChannel(new Float32Array(onda), 0);
-  const nodo = ctx.createBufferSource();
-  nodo.buffer = buffer;
-  nodo.connect(ctx.destination);
-  nodo.start();
-  return (await ctx.startRendering()).getChannelData(0).slice();
 }

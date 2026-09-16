@@ -59,6 +59,25 @@ export interface ResultadoPocket {
   voz: string;
 }
 
+/**
+ * Lo mas corto que puede durar una frase antes de que sea una frase cortada.
+ *
+ * Este modelo decide cuando callarse: es un modelo de lenguaje autorregresivo a
+ * 12,5 marcos por segundo y a veces emite el final de secuencia en el cuarto
+ * marco. Medido el 2026-09-16 en Chromium: «No me acuerdo de donde deje el
+ * paraguas azul» (44 caracteres) sale en 2,1-2,4 s la mitad de las veces y en
+ * **0,30 s** la otra mitad, y no depende de la semilla — se probaron 7, 42,
+ * 1000, 100 000, mil millones y dos aleatorias, y cayeron de los dos lados.
+ * Otras frases no se cortan nunca.
+ *
+ * Con 0,30 s de audio para 44 caracteres salen 7 ms por caracter, contra los
+ * 45-50 de una frase entera. El umbral va en 20: lo bastante por debajo de lo
+ * normal para no tocar una frase buena, y muy por encima de un corte.
+ */
+const MS_POR_CARACTER_MINIMO = 20;
+/** Cuantas veces se vuelve a intentar antes de dar por buena una frase corta. */
+const REINTENTOS = 2;
+
 export class Pocket {
   private constructor(
     private readonly motor: Engine,
@@ -152,6 +171,12 @@ export class Pocket {
    * Texto -> onda. Los marcos llegan de 80 ms; aquí se juntan porque la página
    * dibuja y descarga la frase entera. Para reproducir según sale, usa
    * `marcos()` con el `FramePlayer` del paquete.
+   *
+   * Si lo que sale es **absurdamente corto** para el texto, se reintenta: ver
+   * `MS_POR_CARACTER_MINIMO`. El reintento cambia la semilla de forma
+   * determinista (+1, +2), no aleatoria, para que el mismo texto con la misma
+   * semilla siga dando la misma toma — la regla 5 no se negocia por arreglar
+   * esto.
    */
   async sintetizar(
     texto: string,
@@ -159,6 +184,27 @@ export class Pocket {
     opciones: { pasos?: number; temperatura?: number; semilla?: number } = {},
   ): Promise<ResultadoPocket> {
     const t0 = performance.now();
+    const minimo = (MS_POR_CARACTER_MINIMO * texto.trim().length) / 1000;
+    let onda: Float32Array = new Float32Array(0);
+    for (let intento = 0; intento <= REINTENTOS; intento++) {
+      onda = await this.unaToma(texto, voz, {
+        ...opciones,
+        semilla: opciones.semilla === undefined ? undefined : opciones.semilla + intento,
+      });
+      if (onda.length / this.sampleRate >= minimo) break;
+    }
+    // La salida si se nivela: es una ganancia constante, asi que **no puede**
+    // cambiar la relacion senal/ruido, solo iguala el volumen entre voces, que
+    // en el chat se nota mas que la calidad.
+    return { onda: nivelar(onda), sampleRate: this.sampleRate, ms: performance.now() - t0, voz };
+  }
+
+  /** Una pasada del decodificador, con los marcos ya pegados. */
+  private async unaToma(
+    texto: string,
+    voz: string,
+    opciones: { pasos?: number; temperatura?: number; semilla?: number },
+  ): Promise<Float32Array> {
     const trozos: Float32Array[] = [];
     for await (const marco of this.marcos(texto, voz, opciones)) trozos.push(marco);
     const cruda = new Float32Array(trozos.reduce((n, t) => n + t.length, 0));
@@ -167,10 +213,7 @@ export class Pocket {
       cruda.set(t, pos);
       pos += t.length;
     }
-    // La salida si se nivela: es una ganancia constante, asi que **no puede**
-    // cambiar la relacion senal/ruido, solo iguala el volumen entre voces, que
-    // en el chat se nota mas que la calidad.
-    return { onda: nivelar(cruda), sampleRate: this.sampleRate, ms: performance.now() - t0, voz };
+    return cruda;
   }
 
   /** Los marcos según los va decodificando el worker. */

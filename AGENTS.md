@@ -19,7 +19,8 @@ uv sync --extra dev --extra export --extra voz     # torch cu126 viene del índi
 uv sync ... --extra eval          # AÑADE esto para medir: sin él `uv sync` PODA Whisper y jiwer
 winget install eSpeak-NG.eSpeak-NG                # SOLO para tests/test_frontend_paridad.py; el motor no tiene fonemizador (ADR 0012)
 uv run pytest tests -q              # suite rápida: suelo, frontend y paridad Python/JS (necesita node)
-uv run pytest tests/terminado -q    # criterio de terminado del MVP — hoy FALLA: mide la cadena que retiro el ADR 0012
+cd web && npx playwright test e2e/criterio.spec.ts   # criterio de terminado, la mitad que solo mide un navegador
+uv run pytest tests/terminado -q    # ...y aqui se le pone el numero. Hoy: 7 de 9 en verde, 4b y 5 rojos y medidos
 cd web && npm ci && npm test        # runtime JS; npm run typecheck y npm run lint tambien
 gb who --html mapa.html             # el mapa navegable del repo (derivado, no se commitea)
 

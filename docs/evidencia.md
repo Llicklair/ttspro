@@ -1857,6 +1857,105 @@ elige voz, importa un `.json`, habla y consume un stream. Y se anade un test que
 fichero de espeak-ng reaparece en `dist/`, porque esto vuelve solo en cuanto alguien quite el alias
 o entre otra dependencia que tire de el.
 
+## 2026-09-16 · La voz clonada se corta sola, y no es la semilla — INTERMITENTE, ARREGLADO
+
+**Montaje.** Al reescribir el criterio de terminado, el e2e que lo mide saco una frase clonada de
+**0,32 s**: «No me acuerdo de donde deje el paraguas azul» (44 caracteres), que debe durar unos
+2,2 s. Una frase de 0,3 s no es una frase, es un corte, asi que se persigue.
+
+**Primera hipotesis, equivocada: la semilla.** Con semilla fija salia corta y con semilla aleatoria
+no. Parecia claro. Se barrio el tamano de la semilla por si mulberry32 arrancaba mal desde un estado
+bajo, y el barrido **mato la hipotesis**:
+
+| semilla | duracion |
+|---|---|
+| 7 | **0,30 s** |
+| 42 | 2,43 s |
+| 1 000 | 2,21 s |
+| 100 000 | 2,13 s |
+| 10 000 000 | 2,21 s |
+| 1 000 000 000 | **0,30 s** |
+| 3 000 000 000 | 2,43 s |
+| aleatoria | **0,30 s** |
+| aleatoria | **0,30 s** |
+
+Cuatro de nueve, repartidas sin patron, y las dos aleatorias entre ellas — que es justo lo contrario
+de lo que decia la primera tanda. **Es intermitente**, no determinista: el modelo es un LM
+autorregresivo a 12,5 marcos por segundo y a veces emite el final de secuencia en el cuarto marco.
+Otras frases no se cortan **nunca**, asi que depende del texto ademas del sorteo.
+
+**Arreglo.** Si lo que sale es absurdamente corto para el texto, se vuelve a intentar. El umbral se
+saca de la propia medida: una frase entera da 45-50 ms de audio por caracter y una cortada da 7, asi
+que el corte va en **20 ms/caracter**, lejos de los dos. Hasta dos reintentos, y la semilla del
+reintento es **determinista** (+1, +2), no aleatoria: la regla 5 no se negocia por arreglar esto, el
+mismo texto con la misma semilla sigue dando la misma toma.
+
+**Resultado, la misma tanda de nueve:** 9 de 9 completas, de 1,97 a 3,35 s. Cero cortes.
+
+El coste es el tiempo del reintento, y se ve: en las que reintentan, el RTF sube de ~0,70 a ~1,07
+porque el `ms` cuenta las dos pasadas. Es lo honesto — lo que se tardo es lo que se tardo.
+
+**Lo que esto dice de lo anterior.** Este fallo llevaba ahi desde que se migro a Pocket, y ni los
+e2e ni las pruebas de Marcos lo vieron: se necesitaban varias frases seguidas con la misma voz
+clonada para toparse con el. Lo encontro el criterio de terminado al medir cuatro frases en vez de
+una, que es exactamente para lo que esta.
+
+
+## 2026-09-16 · El criterio de terminado medía la cadena retirada — REESCRITO
+
+**Montaje.** `uv run pytest tests/terminado -q` es lo que SCOPE.md define como «terminado». Estaba
+en rojo, pero **por el motivo equivocado**: media `models/tts.onnx`, un checkpoint de PyTorch contra
+el que comparar el export, y un presupuesto de 110 MB. Ninguna de las tres cosas existe desde el
+ADR 0012. Un rojo que no significa nada deja de avisar, que es peor que no tener criterio.
+
+**Que cambia y que no.**
+
+| Punto | Antes | Ahora |
+|---|---|---|
+| 1 existe y carga | 2 grafos contra contrato.json | 4 grafos contra el contrato **generado leyendo los .onnx** |
+| 2 | paridad PyTorch ↔ ORT | **reproducibilidad** (regla 5): misma semilla, onda identica; semilla distinta, onda distinta |
+| 3 paridad de frontends | fonemas | Unicode (`test_supertonic_paridad`) |
+| 4 calidad | sintesis en Python | el audio que **sale del navegador** |
+| 5 navegador | < 3 s **y** ≤ 110 MB | < 3 s; los MB se anotan y no se juzgan (ADR 0012) |
+
+El punto 2 es el unico que cambia de pregunta. La paridad PyTorch ↔ ORT guardaba «lo que corre no es
+lo que se midio», un riesgo que venia de exportar nosotros un modelo entrenado; hoy el modelo llega
+ya en ONNX y no hay lado de torch con el que discrepar. El riesgo equivalente en esta cadena es el
+sorteo del ruido: si una semilla no reproduce una toma, ningun numero de este fichero se puede
+volver a comprobar y la palabra «medido» deja de significar nada aqui.
+
+Los puntos 4 y 5 se miden **ejecutando la pagina** (`web/e2e/criterio.spec.ts`), que deja los wav y
+un `criterio.json`, y el test de Python les pone el numero. Reimplementar la sintesis en Python para
+puntuarla puntuaria la reimplementacion: lo que se publica es una pagina, y el modelo que clona solo
+existe como Worker.
+
+**Estado medido hoy: 7 de 9 comprobaciones en verde.**
+
+| | | |
+|---|---|---|
+| 1 existe y carga | ✅ | los cuatro grafos |
+| 2 reproducibilidad | ✅ | misma semilla, onda identica |
+| 3 paridad de frontends | ✅ | 26 casos |
+| 4a inteligibilidad | ✅ | WER medio **0,048** sobre 4 frases |
+| 4b similitud | ❌ | **0,349** |
+| 5 latencia | ❌ | **~4 100 ms** en `wasm` headless |
+
+Los dos rojos fallan **con la medida en el mensaje**, no con una traza. El 4b es el techo del encoder
+publicado. El 5 es el suelo de `wasm` sin GPU: RTF ~0,95 con 8 pasos, asi que una frase de 10
+palabras (4,3 s de audio) tarda lo que dura. Queda medir WebGPU, donde el `vector_estimator` de
+256 MB tendria que notarse.
+
+**Una trampa que costo encontrar.** Los ficheros medidos iban a `web/test-results/`, que es el
+directorio de Playwright — y Playwright lo **borra al empezar** cada tirada. Correr cualquier otro
+spec dejaba al criterio de Python diciendo «vuelve a correr la pagina» sin motivo aparente. Ahora van
+a `web/medido/`, que no gestiona nadie mas.
+
+**Y una nota sobre medir con una sola frase.** La primera version usaba una frase de diez palabras y
+dio WER **0,100 exacto**, justo en el umbral — porque Whisper transcribio «zarpó» como «sarpó», que
+es seseo del ASR y no del sintetizador. Con una frase de diez palabras cada palabra vale 0,1 de WER:
+eso no es un criterio, es una moneda al aire. Con cuatro frases el medio baja a 0,048 y los dos
+fallos que quedan siguen siendo del ASR («sarpó», y «9» donde decia «nueve»).
+
 ## Mediciones pendientes que deciden algo
 
 No son tareas: son las preguntas cuyo numero cambia una decision escrita. Cuando se midan, cada una
@@ -1880,6 +1979,7 @@ archivo, es ruido que tapa las vivas.
 - **Los otros 30 idiomas** (MODEL_CARD): el motor dice 31 y aqui solo esta medido el espanol. Pasar
   el ingles por el mismo arnes (WER de Whisper sobre 10 frases) decide si «se ofrecen sin probar»
   sigue siendo lo honesto o si hay que recortar la lista.
-- **Criterio 5 con la cadena nueva** (SCOPE): la latencia en el navegador esta medida a mano
-  (RTF 0,32-1,30 en los e2e) pero `tests/terminado` sigue midiendo la cadena retirada. Hace falta
-  un e2e que escriba lo medido y un criterio reescrito que lo lea.
+- **Criterio 5 en WebGPU** (SCOPE): en `wasm` headless son 4 088 ms para diez palabras, contra un
+  umbral de 3 000. El criterio ya esta reescrito y midiendo (entrada de hoy), asi que lo que falta
+  no es el arnes sino el numero en GPU: es la misma pregunta que la calibracion en la 1070, y la
+  que decide si el punto 5 puede ponerse verde sin bajar los pasos.

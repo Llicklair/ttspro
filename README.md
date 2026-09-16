@@ -236,8 +236,16 @@ The number was chased: it does not follow the reference's quality (r = +0.247), 
 (+13 points from 2 s to 20 s). A better number needs a better published encoder, not a better
 setting here.
 
-`uv run pytest tests/terminado -q` is the acceptance suite; it still describes the previous chain
-and is being rewritten against this one.
+`tests/terminado` is that table as a command, rewritten on 2026-09-16 against this chain. It is two
+steps, because two of the five points can only be measured in a browser:
+
+```bash
+cd web && npx playwright test e2e/criterio.spec.ts   # runs the real page, leaves the wav files
+uv run pytest tests/terminado -q                     # puts a number on them
+```
+
+Seven of its nine checks pass. The two that do not are the two red rows above, and they fail with
+the measurement in the message rather than with a stack trace.
 
 ## Layout
 

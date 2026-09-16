@@ -36,32 +36,59 @@ El MVP está terminado cuando **este comando pasa**:
 uv run pytest tests/terminado -q
 ```
 
-Lo que comprueba, en orden, y por qué cada cosa:
+Lo que comprueba, en orden, y por qué cada cosa. **Reescrito el 2026-09-16** contra la cadena del
+[ADR 0012](docs/adr/0012-supertonic-como-motor.md): lo de antes medía `models/tts.onnx`, un
+checkpoint de PyTorch contra el que comparar el export y un presupuesto de 110 MB, y ninguna de las
+tres cosas existe ya. El criterio estaba **rojo por el motivo equivocado**, que es el peor estado
+posible: cuando el rojo no significa nada, deja de avisar.
 
-1. **Existe y carga**: `models/tts.onnx` y `models/speaker_encoder.onnx` abren en `onnxruntime`,
-   opset ≥ 17, y sus firmas coinciden con [models/contrato.json](models/contrato.json).
-2. **Paridad PyTorch ↔ ORT**: sobre 20 frases fijadas (10 es, 10 en), la distancia log-mel media
-   entre la salida de PyTorch y la de ORT es < 0,1. Si el export cambia el audio, el export está
-   roto.
-3. **Paridad Python ↔ JS del frontend**: las frases de `tests/fixtures/frontend/` producen la misma
-   salida en `ttspro.frontend` y en `web/src/frontend` (regla 3).
-4. **Calidad objetiva** sobre `eval/` (voces de referencia con licencia, 5 s cada una, no vistas en
-   entrenamiento):
-   - inteligibilidad: WER con Whisper-small ≤ 10 % en es y en en;
-   - similitud de locutor: coseno entre el embedding de la referencia y el de la síntesis
-     **≥ 0,55** y **≥ 0,75 × el techo medido en la misma tirada** (el coseno entre dos audios
-     REALES de ese mismo locutor).
-   Recalibrado el 2026-09-05 con 3 000 pares por corpus ([evidencia](docs/evidencia.md)): el techo
-   de este encoder es 0,69 en VCTK y 0,76 en OpenSLR es, y el percentil 99 de locutores distintos
-   es 0,465. El 0,70 que había aquí antes era el techo, no una meta; 0,55 está por encima de ese
-   p99 y a tres cuartos del techo. La comparación con YourTTS (0,75–0,82) no vale: otro encoder,
-   otra escala de coseno.
-5. **En el navegador**: Playwright + Chromium headless con el EP `wasm`, una frase de 10 palabras
-   en < 3 s desde que el modelo está cargado, y descarga total (los dos `.onnx` + wasm de ORT +
-   espeak) ≤ 110 MB (80 hasta el 2026-09-04; ADR 0005, enmienda).
+1. **Existe y carga**: los cuatro grafos de `models/supertonic/` abren en `onnxruntime` y sus firmas
+   coinciden con [contrato.json](models/supertonic/contrato.json). El contrato se **genera leyendo
+   los propios `.onnx`**, así que esto no compara dos ficheros escritos a mano: comprueba que lo
+   descargado sigue siendo lo que se leyó.
+2. **Reproducibilidad (regla 5)**: el mismo texto, la misma voz y la misma semilla dan la **misma
+   onda**, y dos semillas distintas dan ondas distintas. Sustituye a la paridad PyTorch ↔ ORT, que
+   guardaba «lo que corre no es lo que se midió» cuando el export lo hacíamos aquí; hoy el modelo
+   viene ya en ONNX y no hay lado de torch con el que discrepar. El riesgo equivalente es el sorteo
+   del ruido: si esto falla, ningún número de [evidencia](docs/evidencia.md) se puede volver a
+   comprobar.
+3. **Paridad Python ↔ JS del frontend** (regla 3): `tests/test_supertonic_paridad.py`, sobre el
+   frontend Unicode. Ya no hay fonemas que comparar.
+4. **Calidad objetiva**, sobre el audio que sale del **navegador**, no de una síntesis en Python:
+   - inteligibilidad: WER con Whisper-small ≤ 0,10 leyendo con una voz predeterminada;
+   - similitud de locutor: coseno de WeSpeaker **≥ 0,55** entre la referencia y lo que dice la voz
+     clonada de ella.
+5. **En el navegador**: una frase de 10 palabras en < 3 s desde que el modelo está cargado. El
+   presupuesto de descarga que este punto llevaba lo retiró el ADR 0012 por instrucción explícita;
+   los MB se siguen anotando, pero no se juzgan.
+
+Los puntos 4 y 5 los mide `web/e2e/criterio.spec.ts` ejecutando la página de verdad, que deja los
+wav y un `criterio.json`; el test de Python les pone el número. Reimplementar la síntesis en Python
+para puntuarla puntuaría la reimplementación: lo que se publica es una página, y el modelo que clona
+sólo existe como Worker. Por eso el comando completo son dos:
+
+```bash
+cd web && npx playwright test e2e/criterio.spec.ts   # la página, de verdad; deja web/medido/
+uv run pytest tests/terminado -q                     # le pone el número a lo que dejó
+```
 
 Que el criterio sea BUENO sigue sin poder juzgarlo ninguna herramienta (`exit 0` también pasa): que
 el audio suene bien lo juzga una persona, y esa escucha se anota en evidencia con fecha, no en el
 test.
 
-Hoy (2026-09-04) el comando **falla**, y debe fallar: no hay modelo. Es el termómetro.
+Hoy (2026-09-16) el comando **falla en dos de los cinco puntos**, y los dos rojos están medidos y
+explicados, que es distinto de estar rotos:
+
+| | Estado | Medido |
+|---|---|---|
+| 1 existe y carga | ✅ | los cuatro grafos |
+| 2 reproducibilidad | ✅ | misma semilla, onda idéntica |
+| 3 paridad de frontends | ✅ | 26 casos |
+| 4a inteligibilidad | ✅ | WER medio **0,048** sobre cuatro frases (los dos fallos son del ASR: «sarpó», «9») |
+| 4b similitud | ❌ | **0,349** con esta referencia de 6 s en otro idioma; 0,413 de media sobre 14 locutores |
+| 5 latencia | ❌ | **~4 100 ms** en `wasm` headless (4 078–4 088 en tiradas distintas), RTF ~0,95 |
+
+El 4b es el techo del encoder publicado, no un parámetro mal puesto: barrer temperatura y pasos no
+lo mueve, y lo único que lo movió fue darle más grabación (+13 puntos de 2 s a 20 s). El 5 es el
+suelo de `wasm` sin GPU; queda por medir en WebGPU, que es donde el `vector_estimator` tendría que
+notarse ([evidencia](docs/evidencia.md), mediciones pendientes).

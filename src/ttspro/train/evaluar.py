@@ -25,10 +25,8 @@ from __future__ import annotations
 import argparse
 import json
 import random
-import re
 import statistics
 import time
-import unicodedata
 from collections import defaultdict
 from pathlib import Path
 
@@ -36,16 +34,11 @@ import numpy as np
 import torch
 
 from ttspro.export.tts import cargar, config_por_defecto
+from ttspro.medida import normalizar_para_wer
 from ttspro.model.config import ConfigSintetizador
 
 RAIZ = Path(__file__).resolve().parents[3]
 IDIOMA_WHISPER = {"es": "es", "en": "en"}
-
-
-def normalizar_para_wer(texto: str) -> str:
-    texto = unicodedata.normalize("NFKD", texto.lower())
-    texto = "".join(c for c in texto if not unicodedata.combining(c))
-    return " ".join(re.sub(r"[^a-z0-9ñ ]+", " ", texto).split())
 
 
 def sintetizar(

@@ -11,6 +11,9 @@ build/
 # Node
 node_modules/
 web/dist/
+web/test-results/
+# lo que mide `e2e/criterio.spec.ts` para que lo puntue tests/terminado: wav y json
+web/medido/
 # static copies made by `npm run preparar` (ORT wasm, espeak wasm, models)
 web/public/ort/
 web/public/espeak/
